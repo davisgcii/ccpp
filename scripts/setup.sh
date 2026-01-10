@@ -6,15 +6,23 @@ echo "CC++ PII Masking Setup Script"
 echo "========================================="
 echo ""
 
+# Check if Homebrew is installed
+if ! command -v brew &> /dev/null; then
+    echo "❌ Homebrew is not installed"
+    echo "Please install Homebrew first: https://brew.sh"
+    echo "Run: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    exit 1
+else
+    echo "✅ Homebrew is installed"
+fi
+
 # Check if uv is installed
+echo ""
 if ! command -v uv &> /dev/null; then
     echo "❌ uv is not installed"
-    echo "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    echo "Installing uv via Homebrew..."
+    brew install uv
     echo "✅ uv installed successfully"
-    echo ""
-    echo "⚠️  Please restart your terminal and run this script again to continue setup."
-    exit 0
 else
     echo "✅ uv is already installed"
 fi
@@ -29,16 +37,14 @@ echo "✅ Python dependencies installed"
 echo ""
 if ! command -v ollama &> /dev/null; then
     echo "❌ Ollama is not installed"
+    echo "Installing Ollama via Homebrew..."
+    brew install ollama
+    echo "✅ Ollama installed successfully"
     echo ""
-    echo "Please install Ollama from: https://ollama.com"
-    echo ""
-    echo "Platform-specific instructions:"
-    echo "  - macOS: Download and install from https://ollama.com/download/mac"
-    echo "  - Linux: curl -fsSL https://ollama.com/install.sh | sh"
-    echo "  - Windows: Download from https://ollama.com/download/windows"
-    echo ""
-    echo "After installing Ollama, run this script again to complete setup."
-    exit 0
+    echo "⚠️  Starting Ollama service..."
+    brew services start ollama
+    echo "Waiting for Ollama to start..."
+    sleep 3
 else
     echo "✅ Ollama is already installed"
 fi
@@ -48,7 +54,7 @@ echo ""
 echo "Pulling Ollama models (this may take a while)..."
 echo ""
 
-models=("qwen2.5:0.5b" "qwen2.5:1.5b" "qwen2.5:3b")
+models=("qwen3:0.6b" "qwen3:1.7b" "qwen3:4b")
 for model in "${models[@]}"; do
     echo "Pulling $model..."
     if ollama pull "$model"; then

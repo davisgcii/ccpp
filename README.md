@@ -34,11 +34,12 @@ cd ccpp
 ```
 
 The setup script will:
-1. Install `uv` if not already installed
-2. Install Python dependencies via `uv sync`
-3. Check for Ollama installation (with platform-specific instructions)
-4. Pull required Ollama models (qwen2.5:0.5b, qwen2.5:1.5b, qwen2.5:3b)
-5. Create a `.env` file from `.env.example`
+1. Check for Homebrew installation
+2. Install `uv` via Homebrew if not already installed
+3. Install Python dependencies via `uv sync`
+4. Install Ollama via Homebrew if not already installed
+5. Pull required Ollama models (qwen3:0.6b, qwen3:1.7b, qwen3:4b)
+6. Create a `.env` file from `.env.example`
 
 ### Run Demo
 
