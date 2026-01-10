@@ -1,0 +1,114 @@
+# Stage 2 Redactor LLM Configuration
+#
+# This configuration defines the LLM backend for Stage 2 (entity extraction).
+# Stage 2 runs at stream breaks when risk is detected, extracting specific entities to mask.
+
+# Backend configuration
+# Options: "ollama", "anthropic", "openai"
+backend: ollama
+
+# Model name
+# For Ollama: "qwen:4b" (Qwen3-4B - larger model for better entity extraction)
+# For Anthropic: "claude-3-5-haiku-20241022"
+# For OpenAI: "gpt-4o-mini"
+model_name: "qwen:4b"
+
+# Ollama-specific settings (only used if backend is "ollama")
+# host: "http://localhost:11434"  # Optional: defaults to Ollama's default
+timeout: 120  # Longer timeout for entity extraction (more tokens)
+
+# Alternative backend configurations (comment out to use)
+#
+# # Anthropic API
+# backend: anthropic
+# model_name: "claude-3-5-haiku-20241022"
+# # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
+#
+# # OpenAI API
+# backend: openai
+# model_name: "gpt-4o-mini"
+# # api_key: ${OPENAI_API_KEY}  # Set via environment variable
+
+# Generation configuration for Stage 2
+# Stage 2 outputs entity extraction commands: PASS or MASK "entity" category
+generation:
+  max_tokens: 150  # Enough for multiple entities
+  temperature: 0.0  # Deterministic (critical for exact entity extraction)
+  top_p: 1.0
+  do_sample: false  # Greedy decoding
+  stop_sequences: []  # Allow full output
+  enable_thinking: false  # Qwen3-specific: disable thinking mode
+
+# Few-shot prompting configuration (Phase 0: base model testing)
+# Provides examples to the model to guide its entity extraction behavior
+few_shot:
+  enabled: true
+  num_examples: 5
+
+  # Example 1: Single email entity
+  examples:
+    - messages: []
+      window_text: "Contact me at alice@company.com for more details."
+      output: 'MASK "alice@company.com" pii/direct'
+      explanation: "Single email entity extracted"
+
+    # Example 2: No PII
+    - messages: []
+      window_text: "Hello, how are you doing today?"
+      output: "PASS"
+      explanation: "No PII to mask"
+
+    # Example 3: Multiple entities
+    - messages: []
+      window_text: "Call me at 555-123-4567 or email bob@test.com"
+      output: 'MASK "555-123-4567" pii/direct; MASK "bob@test.com" pii/direct'
+      explanation: "Multiple entities extracted"
+
+    # Example 4: API key
+    - messages: []
+      window_text: "Use this key: sk_live_abc123xyz789"
+      output: 'MASK "sk_live_abc123xyz789" credentials'
+      explanation: "Credential extracted"
+
+    # Example 5: Benign example domain (should pass)
+    - messages: []
+      window_text: "Visit example.com for documentation"
+      output: "PASS"
+      explanation: "example.com is a benign test domain, not PII"
+
+# System prompt template
+# This is injected before few-shot examples
+system_prompt: |
+  You are a PII entity extractor. Given conversation context and a text window,
+  extract all PII/sensitive entities that need to be masked.
+
+  Output format:
+  - If no PII: PASS
+  - If PII found: MASK "entity_text" category
+
+  For multiple entities: MASK "entity1" cat1; MASK "entity2" cat2
+
+  Categories:
+  - pii/direct: email, phone, SSN, full name as identifier, address
+  - pii/indirect: partial identifiers that could enable re-identification
+  - credentials: API keys, passwords, tokens, private keys
+  - financial: credit card, account numbers, routing numbers, tax IDs
+  - medical: diagnoses, prescriptions, lab results, record numbers
+  - location/precise: precise addresses, GPS coordinates, real-time location
+
+  CRITICAL RULES:
+  1. Extract the EXACT entity text as it appears (case-sensitive, preserve formatting)
+  2. Use double quotes around entity text to handle spaces/special chars
+  3. Do NOT mask benign test patterns:
+     - example.com, example.org, test.com, localhost
+     - 555-01XX phone numbers, 555-555-XXXX
+     - Obvious test credentials (AKIAIOSFODNN7EXAMPLE, sk_test_*)
+  4. Only extract entities from the window_text, not from conversation history
+  5. Be precise: extract the full entity, not partial matches
+
+  Examples:
+  - Email in text: MASK "john@test.com" pii/direct
+  - Phone: MASK "555-123-4567" pii/direct
+  - API key: MASK "sk_live_abc123" credentials
+  - Multiple: MASK "alice@email.com" pii/direct; MASK "ghp_abc123xyz" credentials
+  - No PII: PASS

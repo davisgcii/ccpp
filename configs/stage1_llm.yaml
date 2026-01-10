@@ -1,0 +1,102 @@
+# Stage 1 Router LLM Configuration
+#
+# This configuration defines the LLM backend for Stage 1 (risk classification).
+# Stage 1 runs on every token/chunk to determine if PII is present or emerging.
+
+# Backend configuration
+# Options: "ollama", "anthropic", "openai"
+backend: ollama
+
+# Model name
+# For Ollama: "qwen:1.7b" (Qwen3-1.7B)
+# For Anthropic: "claude-3-5-haiku-20241022"
+# For OpenAI: "gpt-4o-mini"
+model_name: "qwen:1.7b"
+
+# Ollama-specific settings (only used if backend is "ollama")
+# host: "http://localhost:11434"  # Optional: defaults to Ollama's default
+timeout: 60  # Request timeout in seconds
+
+# Alternative backend configurations (comment out to use)
+#
+# # Anthropic API
+# backend: anthropic
+# model_name: "claude-3-5-haiku-20241022"
+# # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
+#
+# # OpenAI API
+# backend: openai
+# model_name: "gpt-4o-mini"
+# # api_key: ${OPENAI_API_KEY}  # Set via environment variable
+
+# Generation configuration for Stage 1
+# Stage 1 outputs a single token: SAFE or RISK
+generation:
+  max_tokens: 5  # Allow a few tokens for "SAFE" or "RISK"
+  temperature: 0.0  # Deterministic (critical for classification)
+  top_p: 1.0
+  do_sample: false  # Greedy decoding
+  stop_sequences: ["\n", " "]  # Stop after first token
+  enable_thinking: false  # Qwen3-specific: disable thinking mode for simple classification
+
+# Logit extraction configuration
+# Used for binary classification: extract P(SAFE) and P(RISK) from model logits
+logit_extraction:
+  token_a: "SAFE"
+  token_b: "RISK"
+
+# Few-shot prompting configuration (Phase 0: base model testing)
+# Provides examples to the model to guide its classification behavior
+few_shot:
+  enabled: true
+  num_examples: 3
+
+  # Example 1: Safe conversation
+  examples:
+    - messages: []
+      current_buffer: "I'm doing well, thanks for asking!"
+      label: "SAFE"
+      explanation: "Benign conversation without PII"
+
+    # Example 2: PII in current buffer
+    - messages:
+        - role: user
+          content: "Can you provide your email?"
+      current_buffer: "My email is john.doe@company.com"
+      label: "RISK"
+      explanation: "Email address in current buffer"
+
+    # Example 3: Historical PII but current buffer safe
+    - messages:
+        - role: user
+          content: "Can you provide your email?"
+        - role: assistant
+          content: "My email is john.doe@company.com"
+      current_buffer: "Is there anything else I can help you with?"
+      label: "SAFE"
+      explanation: "PII only in history, current buffer is safe"
+
+# System prompt template
+# This is injected before few-shot examples
+system_prompt: |
+  You are a PII detection classifier for streaming text. Given conversation context
+  and a current buffer, classify whether the current buffer contains PII/sensitive
+  information.
+
+  Respond with exactly one word: SAFE or RISK
+
+  RISK if current buffer contains:
+  - Email addresses, phone numbers, SSNs, account numbers
+  - API keys, passwords, tokens, private keys
+  - Credit card numbers, financial account info
+  - Precise addresses, real-time location data
+  - Medical diagnoses, prescriptions, health records
+  - Names used as identifiers (when context suggests user providing their identity)
+
+  SAFE otherwise, including:
+  - General conversation without PII
+  - Historical PII mentioned in earlier context (only flag if in current buffer)
+  - Placeholder examples (example.com, 555-0100, test keys)
+  - Discussions about PII without revealing actual PII
+
+  CRITICAL: Label applies ONLY to current buffer, NOT entire conversation history.
