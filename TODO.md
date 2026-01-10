@@ -68,6 +68,20 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
   - [x] Interactive mode (`-i` flag)
   - [ ] TODO: Integrate with actual base model API streaming
 
+### Interactive client (real-time user testing)
+- [ ] `scripts/client.py`:
+  - [ ] User input capture with space-to-start
+  - [ ] Stream user input through ExchangePIIGuard
+  - [ ] Configurable user timeout (default 3s) for stream breaks
+  - [ ] Real-time risk meter display (P(RISK), EMA, any_risk_in_buffer)
+  - [ ] Send masked user utterance to LLM API (Anthropic Claude)
+  - [ ] Stream LLM response back to user (unmasked for now)
+  - [ ] Display conversation history with masking indicators
+- [ ] Environment setup:
+  - [ ] `.env` file for API keys (ANTHROPIC_API_KEY)
+  - [ ] `.env.example` template
+  - [ ] `.gitignore` to exclude `.env`, models, datasets
+
 ## Phase 3: Synthetic data generation (with entity labels)
 
 ### Dataset schema
@@ -274,11 +288,16 @@ Each record should include:
   - [x] Buffer-scoped label explanation
 
 ### Next Steps
-1. **Phase 3**: Implement synthetic data generation
+1. **Phase 2.5**: Interactive client for real-time testing
+   - User input streaming through classifier
+   - LLM response streaming (unclassified for now)
+   - Real-time risk score/EMA display
+   - Space-to-start, configurable timeout (3s default)
+2. **Phase 3**: Implement synthetic data generation
    - Create Stage 1 training data with buffer-scoped labels
    - Create Stage 2 training data with entity text format
-2. **Phase 4**: Implement augmentations (cross-break entity splitting)
-3. **Phase 5**: Implement real model training
+3. **Phase 4**: Implement augmentations (cross-break entity splitting)
+4. **Phase 5**: Implement real model training
    - Stage 1: Logit-based with softmax-weighted loss
    - Stage 2: Entity text generation
-4. **Phase 6**: Evaluation + calibration on real data
+5. **Phase 6**: Evaluation + calibration on real data

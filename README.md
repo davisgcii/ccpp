@@ -26,21 +26,19 @@ This project implements a two-stage cascade for streaming PII detection and mask
 git clone https://github.com/yourusername/ccpp.git
 cd ccpp
 
-# Install dependencies using uv
-uv sync
+# Run the setup script (installs uv, dependencies, and Ollama models)
+./scripts/setup.sh
+
+# Configure your API keys (optional, for interactive client)
+# Edit .env and add your ANTHROPIC_API_KEY
 ```
 
-### Setup Ollama (for local models)
-
-```bash
-# Install Ollama
-# Visit https://ollama.com for installation instructions
-
-# Pull Qwen3 models
-ollama pull qwen3:0.6b
-ollama pull qwen3:1.7b
-ollama pull qwen3:4b
-```
+The setup script will:
+1. Install `uv` if not already installed
+2. Install Python dependencies via `uv sync`
+3. Check for Ollama installation (with platform-specific instructions)
+4. Pull required Ollama models (qwen2.5:0.5b, qwen2.5:1.5b, qwen2.5:3b)
+5. Create a `.env` file from `.env.example`
 
 ### Run Demo
 
