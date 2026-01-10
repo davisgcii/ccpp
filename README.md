@@ -54,6 +54,61 @@ uv run python scripts/demo.py --backend ollama --stage1-config configs/stage1_ll
 uv run python scripts/demo.py -i
 ```
 
+## Testing
+
+The project uses pytest for testing. Tests are organized by markers for different categories.
+
+### Run All Tests
+
+```bash
+uv run pytest
+```
+
+### Run Tests by Category
+
+```bash
+# Run only unit tests (fast, no external dependencies)
+uv run pytest -m unit
+
+# Run integration tests (may use external services)
+uv run pytest -m integration
+
+# Run tests that require Ollama (ensure Ollama is running)
+uv run pytest -m requires_ollama
+
+# Run tests that require API keys (ensure .env is configured)
+uv run pytest -m requires_api
+
+# Exclude slow tests
+uv run pytest -m "not slow"
+```
+
+### Run Specific Test Files
+
+```bash
+# Test types and core data structures
+uv run pytest tests/test_types.py
+
+# Test LLM harness
+uv run pytest tests/test_llm_harness.py
+
+# Test heuristics
+uv run pytest tests/test_heuristics.py
+
+# Test Stage 1 router
+uv run pytest tests/test_stage1_router.py
+
+# Test Stage 2 redactor
+uv run pytest tests/test_stage2_redactor.py
+```
+
+### Coverage Report
+
+```bash
+# Run tests with coverage report
+uv run pytest --cov=src/ccpp --cov-report=html --cov-report=term-missing
+```
+
 ## Architecture
 
 See `CLAUDE.md` for detailed architecture documentation.
