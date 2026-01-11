@@ -147,15 +147,17 @@ def create_risk_chart(
     risk_history: list,
     t_high: float = 0.6,
     t_low: float = 0.3,
-    height: int = 12,
+    width: int = 70,
+    height: int = 16,
 ) -> str:
-    """Create color-coded ASCII chart showing RISK and EMA (dynamic width based on text length).
+    """Create color-coded ASCII chart showing RISK and EMA.
 
     Args:
         risk_history: List of dicts with keys: char_idx, p_risk, ema, any_risk
         t_high: High threshold
         t_low: Low threshold
-        height: Chart height in characters (width is auto-calculated from text length)
+        width: Chart width in characters
+        height: Chart height in characters
 
     Returns:
         HTML string with color-coded ASCII chart
@@ -170,9 +172,7 @@ def create_risk_chart(
             border: 1px solid #333;
             border-radius: 3px;
             white-space: pre;
-            line-height: 1.3;
-            width: 100%;
-            overflow-x: auto;">
+            line-height: 1.3;">
 RISK and EMA
 
 
@@ -183,15 +183,6 @@ RISK and EMA
 
 
 </div>'''
-
-    # Calculate width from text length (each char gets one column, plus axis space)
-    max_idx = max(r["char_idx"] for r in risk_history)
-    width = max_idx + 10  # Add padding for axis and labels
-
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.debug(f"[create_risk_chart] Rendering chart: width={width}, height={height}, num_points={len(risk_history)}")
-
 
     # Build chart
     chart_lines = _render_color_chart(
@@ -211,9 +202,7 @@ RISK and EMA
         border: 1px solid #333;
         border-radius: 3px;
         white-space: pre;
-        line-height: 1.3;
-        width: 100%;
-        overflow-x: auto;">{''.join(chart_lines)}</div>'''
+        line-height: 1.3;">{''.join(chart_lines)}</div>'''
 
 
 def _render_color_chart(
@@ -331,11 +320,9 @@ def _value_to_y(value: float, height: int) -> int:
 
 
 def _char_to_x(char_idx: int, min_char: int, char_range: int, width: int) -> int:
-    """Convert character index to x coordinate.
-
-    Use 1:1 mapping so each character gets its own column.
-    """
-    x = char_idx - min_char + 1  # +1 for axis
+    """Convert character index to x coordinate."""
+    normalized = (char_idx - min_char) / char_range
+    x = int(normalized * (width - 2)) + 1
     return max(1, min(width - 1, x))
 
 

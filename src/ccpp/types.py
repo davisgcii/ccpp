@@ -467,3 +467,80 @@ class HeuristicMatch:
     def to_mask_span(self) -> MaskSpan:
         """Convert to MaskSpan for redaction."""
         return MaskSpan(entity_text=self.matched_text, category=self.suggested_category)
+
+
+# -----------------------------------------------------------------------------
+# GUI Debugging Metadata
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class CharClassification:
+    """Per-character classification metadata for interactive debugging.
+
+    Stores full prompts and responses for each character to enable
+    hover tooltips in the GUI.
+    """
+
+    char: str  # The character
+    idx: int  # Character index in buffer
+    risk_score: float  # P(RISK) from Stage 1
+    ema: float  # EMA value after this character
+    classifier_prompt: list[dict]  # Full formatted messages sent to Stage 1
+    classifier_response: dict  # {p_safe, p_risk, raw_output}
+    timestamp: float  # Unix timestamp
+
+    def to_dict(self) -> dict:
+        """Serialize for storage."""
+        return {
+            "char": self.char,
+            "idx": self.idx,
+            "risk_score": self.risk_score,
+            "ema": self.ema,
+            "classifier_prompt": self.classifier_prompt,
+            "classifier_response": self.classifier_response,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class BufferMetadata:
+    """Per-buffer metadata for masking operations.
+
+    Stores full masker prompts/responses and aggregated character data
+    for tooltip display.
+    """
+
+    original_text: str  # Unmasked buffer
+    masked_text: str  # After redaction
+    char_data: list[CharClassification]  # Per-character classifications
+    masker_prompt: Optional[list[dict]]  # Full formatted messages to Stage 2
+    masker_response: Optional[dict]  # {raw_output, entities}
+    risk_history: list[dict]  # Copy of risk_history for mini-chart
+    heuristic_matches: list[HeuristicMatch]  # Fast heuristic detections
+    was_masked: bool  # Whether masking was triggered
+    timestamp: float  # Unix timestamp
+
+    def to_dict(self) -> dict:
+        """Serialize for storage."""
+        return {
+            "original_text": self.original_text,
+            "masked_text": self.masked_text,
+            "char_data": [c.to_dict() for c in self.char_data],
+            "masker_prompt": self.masker_prompt,
+            "masker_response": self.masker_response,
+            "risk_history": self.risk_history,
+            "heuristic_matches": [
+                {
+                    "pattern_name": m.pattern_name,
+                    "matched_text": m.matched_text,
+                    "start": m.start,
+                    "end": m.end,
+                    "confidence": m.confidence,
+                    "category": m.suggested_category.value,
+                }
+                for m in self.heuristic_matches
+            ],
+            "was_masked": self.was_masked,
+            "timestamp": self.timestamp,
+        }

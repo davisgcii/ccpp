@@ -171,14 +171,21 @@ class OllamaBackend(LLMBackend):
         try:
             output = self.generate(messages, gen_config).strip().upper()
 
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"[extract_logit_probs] Model output: '{output}'")
+
             # Map to probabilities (deterministic)
             if config.token_a.upper() in output:
+                logger.debug(f"[extract_logit_probs] Matched token_a='{config.token_a}' -> (1.0, 0.0)")
                 return (1.0, 0.0)  # prob_a=1.0, prob_b=0.0
             elif config.token_b.upper() in output:
+                logger.debug(f"[extract_logit_probs] Matched token_b='{config.token_b}' -> (0.0, 1.0)")
                 return (0.0, 1.0)  # prob_a=0.0, prob_b=1.0
             else:
                 # If unclear, return slight bias toward safe
                 # This happens if the model outputs something unexpected
+                logger.warning(f"[extract_logit_probs] Unclear output '{output}' (expected '{config.token_a}' or '{config.token_b}'), returning (0.7, 0.3)")
                 return (0.7, 0.3)
 
         except Exception as e:

@@ -76,12 +76,16 @@ def main():
     print("=" * 60)
 
     # Create and launch GUI
-    demo = create_gui(state)
+    demo, theme, css = create_gui(state)
+
+    # Launch with theme and css (Gradio 6.0+ API)
     demo.launch(
         share=args.share,
         server_name="127.0.0.1",
         server_port=args.port,
         show_error=True,
+        theme=theme,
+        css=css,
     )
 
 
