@@ -26,6 +26,7 @@ dependencies = [
     "rich>=13.7.0",  # Terminal UI
     "python-dotenv>=1.0.0",  # Load .env files
     "blessed>=1.20.0",  # Terminal input handling
+    "gradio>=4.0.0",  # GUI client
 ]
 
 [project.optional-dependencies]
