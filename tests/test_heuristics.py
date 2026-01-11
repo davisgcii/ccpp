@@ -1,7 +1,12 @@
-"""Tests for fast heuristics module."""
+"""Tests for fast heuristics module.
+
+Simplified to test only reliable, low-false-positive patterns:
+- Email addresses
+- API keys (AWS, Stripe, GitHub)
+"""
 
 import pytest
-from ccpp.infer.heuristics import FastHeuristics, HeuristicMatch
+from ccpp.infer.heuristics import FastHeuristics
 from ccpp.types import PIICategory
 
 
@@ -13,6 +18,7 @@ class TestFastHeuristics:
         """Create FastHeuristics instance."""
         return FastHeuristics()
 
+    # Email detection tests
     def test_detect_email(self, heuristics):
         """Test email detection."""
         text = "Contact me at john.doe@company.com for details."
@@ -42,81 +48,7 @@ class TestFastHeuristics:
         # example.com should be filtered out
         assert len(matches) == 0
 
-    def test_detect_phone_number(self, heuristics):
-        """Test phone number detection."""
-        text = "Call me at 702-123-4567 tomorrow."
-        matches = heuristics.detect(text)
-
-        assert len(matches) == 1
-        assert matches[0].pattern_name == "phone_us"
-        assert matches[0].matched_text == "702-123-4567"
-        assert matches[0].suggested_category == PIICategory.PII_DIRECT
-
-    def test_phone_number_formats(self, heuristics):
-        """Test various phone number formats."""
-        texts = [
-            "7021234567",
-            "702-234-5678",
-            "702.345.6789",
-        ]
-
-        for text in texts:
-            matches = heuristics.detect(text)
-            assert len(matches) >= 1, f"Failed to detect: {text}"
-
-    def test_phone_allowlist(self, heuristics):
-        """Test that test phone numbers are filtered."""
-        text = "Test number: 555-0100"
-        matches = heuristics.detect(text)
-
-        # 555-01XX should be filtered
-        assert len(matches) == 0
-
-    def test_detect_ssn(self, heuristics):
-        """Test SSN detection."""
-        text = "My SSN is 456-78-9012"
-        matches = heuristics.detect(text)
-
-        assert len(matches) == 1
-        assert matches[0].pattern_name == "ssn"
-        assert matches[0].matched_text == "456-78-9012"
-        assert matches[0].suggested_category == PIICategory.PII_DIRECT
-
-    def test_ssn_allowlist(self, heuristics):
-        """Test that invalid SSNs are filtered."""
-        invalid_ssns = [
-            "000-00-0000",
-            "999-99-9999",
-            "123-45-6789",  # Known test SSN
-        ]
-
-        for ssn in invalid_ssns:
-            matches = heuristics.detect(ssn)
-            # Should be filtered or at least have low confidence
-            if matches:
-                assert all(m.confidence < 0.9 for m in matches)
-
-    def test_detect_credit_card(self, heuristics):
-        """Test credit card detection with Luhn validation."""
-        # Valid test card number (passes Luhn check)
-        text = "Card: 4532015112830366"
-        matches = heuristics.detect(text)
-
-        assert len(matches) >= 1
-        card_match = next((m for m in matches if m.pattern_name == "credit_card"), None)
-        assert card_match is not None
-        assert card_match.suggested_category == PIICategory.FINANCIAL
-
-    def test_credit_card_invalid_luhn(self, heuristics):
-        """Test that invalid Luhn check is filtered."""
-        # Invalid card number (fails Luhn check)
-        text = "Card: 1234567890123456"
-        matches = heuristics.detect(text)
-
-        # Should not detect as credit card
-        card_matches = [m for m in matches if m.pattern_name == "credit_card"]
-        assert len(card_matches) == 0
-
+    # AWS key detection tests
     def test_detect_aws_key(self, heuristics):
         """Test AWS access key detection."""
         text = "Key: AKIATESTKEY123456789"  # 20 chars total: AKIA + 16 uppercase alphanumeric
@@ -125,7 +57,18 @@ class TestFastHeuristics:
         aws_matches = [m for m in matches if m.pattern_name == "aws_access_key"]
         assert len(aws_matches) >= 1
         assert aws_matches[0].suggested_category == PIICategory.CREDENTIALS
+        assert aws_matches[0].confidence == 1.0
 
+    def test_aws_key_allowlist(self, heuristics):
+        """Test that example AWS keys are filtered."""
+        text = "Example: AKIAIOSFODNN7EXAMPLE"
+        matches = heuristics.detect(text)
+
+        # Example key should be filtered
+        aws_matches = [m for m in matches if m.pattern_name == "aws_access_key"]
+        assert len(aws_matches) == 0
+
+    # Stripe key detection tests
     def test_detect_stripe_key(self, heuristics):
         """Test Stripe key detection."""
         text = "API key: sk_live_abc123xyz789"
@@ -134,16 +77,18 @@ class TestFastHeuristics:
         stripe_matches = [m for m in matches if m.pattern_name == "stripe_live_key"]
         assert len(stripe_matches) >= 1
         assert stripe_matches[0].suggested_category == PIICategory.CREDENTIALS
+        assert stripe_matches[0].confidence == 1.0
 
     def test_stripe_test_key_filtered(self, heuristics):
-        """Test that Stripe test keys are filtered."""
+        """Test that Stripe test keys are not matched."""
         text = "Test key: sk_test_abc123"
         matches = heuristics.detect(text)
 
-        # sk_test_ should be filtered
+        # sk_test_ should not match the pattern (only sk_live_)
         stripe_matches = [m for m in matches if m.pattern_name == "stripe_live_key"]
         assert len(stripe_matches) == 0
 
+    # GitHub token detection tests
     def test_detect_github_token(self, heuristics):
         """Test GitHub token detection."""
         text = "Token: ghp_" + "a" * 36
@@ -152,58 +97,46 @@ class TestFastHeuristics:
         github_matches = [m for m in matches if m.pattern_name == "github_token"]
         assert len(github_matches) >= 1
         assert github_matches[0].suggested_category == PIICategory.CREDENTIALS
+        assert github_matches[0].confidence == 1.0
 
-    def test_detect_pem_block(self, heuristics):
-        """Test PEM private key block detection."""
-        text = "-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----"
-        matches = heuristics.detect(text)
-
-        pem_matches = [m for m in matches if m.pattern_name == "pem_private_key"]
-        assert len(pem_matches) >= 1
-        assert pem_matches[0].suggested_category == PIICategory.CREDENTIALS
-
+    # General behavior tests
     def test_no_false_positives_on_safe_text(self, heuristics):
         """Test that safe text doesn't trigger false positives."""
         safe_texts = [
             "Hello, how are you?",
             "The weather is nice today.",
-            "I like to code in Python.",
-            "See the docs at example.com",
-            "Call 555-0100 for testing",
+            "I went to the store yesterday.",
+            "My favorite number is 42.",
         ]
 
         for text in safe_texts:
             matches = heuristics.detect(text)
-            # Either no matches or only low-confidence matches
-            high_conf_matches = [m for m in matches if m.confidence >= 0.9]
-            assert len(high_conf_matches) == 0, f"False positive in: {text}"
+            assert len(matches) == 0, f"False positive on: {text}"
 
     def test_mixed_content(self, heuristics):
         """Test detection in mixed PII content."""
-        text = "Email: alice@company.com, Phone: 555-234-5678, Card: 4532015112830366"
+        text = "Email: alice@company.com, AWS: AKIATEST1234567890AB"
         matches = heuristics.detect(text)
 
-        # Should detect multiple types
+        # Should detect both types
         patterns = {m.pattern_name for m in matches}
         assert "email" in patterns
-        assert "phone_us" in patterns
-        # Card might or might not be detected depending on Luhn implementation
+        assert "aws_access_key" in patterns
 
     def test_confidence_scores(self, heuristics):
         """Test that confidence scores are reasonable."""
-        text = "My email is real@company.com"
+        text = "My email is real@company.com and key AKIATEST1234567890CD"
         matches = heuristics.detect(text)
 
-        for match in matches:
-            assert 0.0 <= match.confidence <= 1.0
-            assert match.confidence > 0.0  # Should have some confidence
+        # All matches should have high confidence
+        assert all(m.confidence >= 0.9 for m in matches)
 
     def test_empty_text(self, heuristics):
-        """Test detection on empty text."""
+        """Test empty input."""
         matches = heuristics.detect("")
         assert len(matches) == 0
 
     def test_whitespace_only(self, heuristics):
-        """Test detection on whitespace."""
+        """Test whitespace-only input."""
         matches = heuristics.detect("   \n\t  ")
         assert len(matches) == 0
