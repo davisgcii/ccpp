@@ -4,15 +4,15 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import os
 
-from src.ccpp.llm.base import (
+from ccpp.llm.base import (
     LLMBackend,
     ModelBackend,
     GenerationConfig,
     LogitExtractionConfig,
 )
-from src.ccpp.llm.factory import create_backend_from_config
-from src.ccpp.llm.ollama_backend import OllamaBackend
-from src.ccpp.llm.api_backend import AnthropicBackend, OpenAIBackend
+from ccpp.llm.factory import create_backend_from_config
+from ccpp.llm.ollama_backend import OllamaBackend
+from ccpp.llm.api_backend import AnthropicBackend, OpenAIBackend
 
 
 class TestGenerationConfig:

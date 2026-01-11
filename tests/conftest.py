@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, MagicMock
 from typing import List, Dict
 
-from src.ccpp.types import (
+from ccpp.types import (
     PIICategory,
     RiskScore,
     MaskSpan,
@@ -12,7 +12,7 @@ from src.ccpp.types import (
     HoldbackBuffer,
     RiskState,
 )
-from src.ccpp.llm.base import LLMBackend, GenerationConfig, LogitExtractionConfig
+from ccpp.llm.base import LLMBackend, GenerationConfig, LogitExtractionConfig
 
 
 @pytest.fixture

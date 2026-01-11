@@ -86,7 +86,7 @@ class FastHeuristics:
             "AKIAIOSFODNN7EXAMPLE",
         }
 
-    def check(self, text: str) -> list[HeuristicMatch]:
+    def detect(self, text: str) -> list[HeuristicMatch]:
         """Run all heuristic detectors on text.
 
         Args:

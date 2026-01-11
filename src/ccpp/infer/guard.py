@@ -88,7 +88,7 @@ class ExchangePIIGuard:
         self.last_token_time = time.time()
 
         # 2. Run fast heuristics
-        matches = self.heuristics.check(self.buffer.raw_text)
+        matches = self.heuristics.detect(self.buffer.raw_text)
         strong_match = self.heuristics.has_strong_match(matches)
 
         if strong_match:
@@ -197,7 +197,7 @@ class ExchangePIIGuard:
         events.append({"type": "force_emit"})
 
         # Run heuristics
-        matches = self.heuristics.check(self.buffer.raw_text)
+        matches = self.heuristics.detect(self.buffer.raw_text)
         strong_match = self.heuristics.has_strong_match(matches)
 
         # Check current risk state

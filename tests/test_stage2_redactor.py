@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from src.ccpp.infer.stage2_redactor import Stage2Redactor
-from src.ccpp.types import RedactorOutput, MaskSpan, PIICategory
+from ccpp.infer.stage2_redactor import Stage2Redactor
+from ccpp.types import RedactorOutput, MaskSpan, PIICategory
 
 
 class TestStage2RedactorMockMode:

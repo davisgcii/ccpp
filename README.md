@@ -23,7 +23,7 @@ This project implements a two-stage cascade for streaming PII detection and mask
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ccpp.git
+git clone https://github.com/davisgcii/ccpp.git
 cd ccpp
 
 # Run the setup script (installs uv, dependencies, and Ollama models)

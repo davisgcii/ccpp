@@ -1,8 +1,8 @@
 """Tests for fast heuristics module."""
 
 import pytest
-from src.ccpp.infer.heuristics import FastHeuristics, HeuristicMatch
-from src.ccpp.types import PIICategory
+from ccpp.infer.heuristics import FastHeuristics, HeuristicMatch
+from ccpp.types import PIICategory
 
 
 class TestFastHeuristics:
@@ -19,9 +19,9 @@ class TestFastHeuristics:
         matches = heuristics.detect(text)
 
         assert len(matches) == 1
-        assert matches[0].pattern == "email"
+        assert matches[0].pattern_name == "email"
         assert matches[0].matched_text == "john.doe@company.com"
-        assert matches[0].category == PIICategory.PII_DIRECT
+        assert matches[0].suggested_category == PIICategory.PII_DIRECT
         assert matches[0].confidence >= 0.9
 
     def test_detect_multiple_emails(self, heuristics):
@@ -44,20 +44,20 @@ class TestFastHeuristics:
 
     def test_detect_phone_number(self, heuristics):
         """Test phone number detection."""
-        text = "Call me at 555-123-4567 tomorrow."
+        text = "Call me at 702-123-4567 tomorrow."
         matches = heuristics.detect(text)
 
         assert len(matches) == 1
-        assert matches[0].pattern == "phone"
-        assert matches[0].matched_text == "555-123-4567"
-        assert matches[0].category == PIICategory.PII_DIRECT
+        assert matches[0].pattern_name == "phone_us"
+        assert matches[0].matched_text == "702-123-4567"
+        assert matches[0].suggested_category == PIICategory.PII_DIRECT
 
     def test_phone_number_formats(self, heuristics):
         """Test various phone number formats."""
         texts = [
-            "5551234567",
-            "555-123-4567",
-            "555.123.4567",
+            "7021234567",
+            "702-234-5678",
+            "702.345.6789",
         ]
 
         for text in texts:
@@ -74,13 +74,13 @@ class TestFastHeuristics:
 
     def test_detect_ssn(self, heuristics):
         """Test SSN detection."""
-        text = "My SSN is 123-45-6789"
+        text = "My SSN is 456-78-9012"
         matches = heuristics.detect(text)
 
         assert len(matches) == 1
-        assert matches[0].pattern == "ssn"
-        assert matches[0].matched_text == "123-45-6789"
-        assert matches[0].category == PIICategory.PII_DIRECT
+        assert matches[0].pattern_name == "ssn"
+        assert matches[0].matched_text == "456-78-9012"
+        assert matches[0].suggested_category == PIICategory.PII_DIRECT
 
     def test_ssn_allowlist(self, heuristics):
         """Test that invalid SSNs are filtered."""
@@ -103,9 +103,9 @@ class TestFastHeuristics:
         matches = heuristics.detect(text)
 
         assert len(matches) >= 1
-        card_match = next((m for m in matches if m.pattern == "credit_card"), None)
+        card_match = next((m for m in matches if m.pattern_name == "credit_card"), None)
         assert card_match is not None
-        assert card_match.category == PIICategory.FINANCIAL
+        assert card_match.suggested_category == PIICategory.FINANCIAL
 
     def test_credit_card_invalid_luhn(self, heuristics):
         """Test that invalid Luhn check is filtered."""
@@ -114,26 +114,26 @@ class TestFastHeuristics:
         matches = heuristics.detect(text)
 
         # Should not detect as credit card
-        card_matches = [m for m in matches if m.pattern == "credit_card"]
+        card_matches = [m for m in matches if m.pattern_name == "credit_card"]
         assert len(card_matches) == 0
 
     def test_detect_aws_key(self, heuristics):
         """Test AWS access key detection."""
-        text = "Key: AKIAIOSFODNN7EXAMPLE"
+        text = "Key: AKIATESTKEY123456789"  # 20 chars total: AKIA + 16 uppercase alphanumeric
         matches = heuristics.detect(text)
 
-        aws_matches = [m for m in matches if m.pattern == "aws_key"]
+        aws_matches = [m for m in matches if m.pattern_name == "aws_access_key"]
         assert len(aws_matches) >= 1
-        assert aws_matches[0].category == PIICategory.CREDENTIALS
+        assert aws_matches[0].suggested_category == PIICategory.CREDENTIALS
 
     def test_detect_stripe_key(self, heuristics):
         """Test Stripe key detection."""
         text = "API key: sk_live_abc123xyz789"
         matches = heuristics.detect(text)
 
-        stripe_matches = [m for m in matches if m.pattern == "stripe_key"]
+        stripe_matches = [m for m in matches if m.pattern_name == "stripe_live_key"]
         assert len(stripe_matches) >= 1
-        assert stripe_matches[0].category == PIICategory.CREDENTIALS
+        assert stripe_matches[0].suggested_category == PIICategory.CREDENTIALS
 
     def test_stripe_test_key_filtered(self, heuristics):
         """Test that Stripe test keys are filtered."""
@@ -141,7 +141,7 @@ class TestFastHeuristics:
         matches = heuristics.detect(text)
 
         # sk_test_ should be filtered
-        stripe_matches = [m for m in matches if m.pattern == "stripe_key"]
+        stripe_matches = [m for m in matches if m.pattern_name == "stripe_live_key"]
         assert len(stripe_matches) == 0
 
     def test_detect_github_token(self, heuristics):
@@ -149,18 +149,18 @@ class TestFastHeuristics:
         text = "Token: ghp_" + "a" * 36
         matches = heuristics.detect(text)
 
-        github_matches = [m for m in matches if m.pattern == "github_token"]
+        github_matches = [m for m in matches if m.pattern_name == "github_token"]
         assert len(github_matches) >= 1
-        assert github_matches[0].category == PIICategory.CREDENTIALS
+        assert github_matches[0].suggested_category == PIICategory.CREDENTIALS
 
     def test_detect_pem_block(self, heuristics):
         """Test PEM private key block detection."""
         text = "-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----"
         matches = heuristics.detect(text)
 
-        pem_matches = [m for m in matches if m.pattern == "pem_key"]
+        pem_matches = [m for m in matches if m.pattern_name == "pem_private_key"]
         assert len(pem_matches) >= 1
-        assert pem_matches[0].category == PIICategory.CREDENTIALS
+        assert pem_matches[0].suggested_category == PIICategory.CREDENTIALS
 
     def test_no_false_positives_on_safe_text(self, heuristics):
         """Test that safe text doesn't trigger false positives."""
@@ -184,9 +184,9 @@ class TestFastHeuristics:
         matches = heuristics.detect(text)
 
         # Should detect multiple types
-        patterns = {m.pattern for m in matches}
+        patterns = {m.pattern_name for m in matches}
         assert "email" in patterns
-        assert "phone" in patterns
+        assert "phone_us" in patterns
         # Card might or might not be detected depending on Luhn implementation
 
     def test_confidence_scores(self, heuristics):

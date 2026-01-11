@@ -1,7 +1,7 @@
 """Tests for ccpp.types module."""
 
 import pytest
-from src.ccpp.types import (
+from ccpp.types import (
     PIICategory,
     RiskScore,
     MaskSpan,
@@ -139,14 +139,14 @@ class TestHoldbackBuffer:
 
     def test_holdback_buffer_creation(self):
         """Test creating a HoldbackBuffer."""
-        buffer = HoldbackBuffer(text="Hello", overlap_tail="llo")
-        assert buffer.text == "Hello"
+        buffer = HoldbackBuffer(raw_text="Hello", overlap_tail="llo")
+        assert buffer.raw_text == "Hello"
         assert buffer.overlap_tail == "llo"
 
     def test_holdback_buffer_empty(self):
         """Test empty HoldbackBuffer."""
-        buffer = HoldbackBuffer(text="", overlap_tail="")
-        assert buffer.text == ""
+        buffer = HoldbackBuffer(raw_text="", overlap_tail="")
+        assert buffer.raw_text == ""
         assert buffer.overlap_tail == ""
 
 
@@ -157,19 +157,16 @@ class TestRiskState:
         """Test creating a RiskState."""
         state = RiskState(
             ema_risk=0.5,
-            is_escalated=True,
-            any_risk_in_buffer=False
+            is_escalated=True
         )
         assert state.ema_risk == 0.5
         assert state.is_escalated is True
-        assert state.any_risk_in_buffer is False
 
     def test_risk_state_defaults(self):
         """Test RiskState default values."""
         state = RiskState()
         assert state.ema_risk == 0.0
         assert state.is_escalated is False
-        assert state.any_risk_in_buffer is False
 
     def test_risk_state_transitions(self):
         """Test risk state transitions."""

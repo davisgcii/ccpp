@@ -46,6 +46,20 @@ class Stage2Redactor:
         self.few_shot_examples = []
         self.system_prompt = ""
 
+        # Initialize regex patterns (used in mock mode and for allowlist filtering)
+        self.email_pattern = re.compile(
+            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
+        )
+        self.phone_pattern = re.compile(
+            r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"
+        )
+        self.ssn_pattern = re.compile(
+            r"\b\d{3}-\d{2}-\d{4}\b"
+        )
+        self.api_key_pattern = re.compile(
+            r"\b(sk_live_[a-zA-Z0-9]+|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36})\b"
+        )
+
         if not mock_mode:
             # Priority: llm_backend > llm_config > model_path
             if llm_backend:
@@ -85,20 +99,6 @@ class Stage2Redactor:
             stop_sequences=gen_cfg.get("stop_sequences", []),
             do_sample=gen_cfg.get("do_sample", False),
             enable_thinking=gen_cfg.get("enable_thinking", False),
-        )
-
-        # Regex patterns for mock mode
-        self.email_pattern = re.compile(
-            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
-        )
-        self.phone_pattern = re.compile(
-            r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"
-        )
-        self.ssn_pattern = re.compile(
-            r"\b\d{3}-\d{2}-\d{4}\b"
-        )
-        self.api_key_pattern = re.compile(
-            r"\b(sk_live_[a-zA-Z0-9]+|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36})\b"
         )
 
     def redact(self, messages: list[dict], window_text: str) -> RedactorOutput:

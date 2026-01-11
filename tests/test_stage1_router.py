@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from src.ccpp.infer.stage1_router import Stage1Router
-from src.ccpp.types import RiskScore
+from ccpp.infer.stage1_router import Stage1Router
+from ccpp.types import RiskScore
 
 
 class TestStage1RouterMockMode:
