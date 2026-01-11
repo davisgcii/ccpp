@@ -24,10 +24,51 @@ def _create_mock_list_response(model_names):
         mock_model = MagicMock()
         mock_model.model = name
         mock_models.append(mock_model)
-    
+
     mock_list_response = MagicMock()
     mock_list_response.models = mock_models
     return mock_list_response
+
+
+def _create_mock_logprobs_response(response_text, logprobs_data):
+    """Helper to create mock Ollama generate response with Pydantic-like logprobs.
+
+    The ollama-python SDK returns Pydantic objects, not dicts. This helper creates
+    mock objects that match the SDK's response structure.
+
+    Args:
+        response_text: The generated text response
+        logprobs_data: List of dicts with {token, logprob, top_logprobs: [{token, logprob}, ...]}
+
+    Returns:
+        Mock response object with .logprobs attribute containing Logprob-like objects
+    """
+    mock_response = MagicMock()
+    mock_response.response = response_text
+
+    if not logprobs_data:
+        mock_response.logprobs = []
+        return mock_response
+
+    mock_logprobs = []
+    for lp_data in logprobs_data:
+        mock_logprob = MagicMock()
+        mock_logprob.token = lp_data.get("token", "")
+        mock_logprob.logprob = lp_data.get("logprob", 0.0)
+
+        # Create top_logprobs as list of TokenLogprob-like objects
+        top_logprobs = []
+        for tlp in lp_data.get("top_logprobs", []):
+            mock_token_logprob = MagicMock()
+            mock_token_logprob.token = tlp.get("token", "")
+            mock_token_logprob.logprob = tlp.get("logprob", 0.0)
+            top_logprobs.append(mock_token_logprob)
+
+        mock_logprob.top_logprobs = top_logprobs
+        mock_logprobs.append(mock_logprob)
+
+    mock_response.logprobs = mock_logprobs
+    return mock_response
 
 
 class TestGenerationConfig:
@@ -130,7 +171,12 @@ class TestOllamaBackend:
         """Test text generation."""
         mock_client = MagicMock()
         mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
-        mock_client.chat.return_value = {"message": {"content": "Hello there!"}}
+        # Mock chat response with Pydantic-like object
+        mock_message = MagicMock()
+        mock_message.content = "Hello there!"
+        mock_chat_response = MagicMock()
+        mock_chat_response.message = mock_message
+        mock_client.chat.return_value = mock_chat_response
         mock_client_class.return_value = mock_client
 
         backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
@@ -144,27 +190,54 @@ class TestOllamaBackend:
 
     @patch('ollama.Client')
     def test_ollama_extract_logit_probs_safe(self, mock_client_class):
-        """Test logit extraction for safe content."""
+        """Test logit extraction for safe content with logprobs."""
         mock_client = MagicMock()
         mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
-        mock_client.chat.return_value = {"message": {"content": "SAFE"}}
+        # SAFE has higher logprob - use Pydantic-like response structure
+        mock_client.generate.return_value = _create_mock_logprobs_response(
+            "SAFE",
+            [
+                {
+                    "token": "SAFE",
+                    "logprob": -0.5,
+                    "top_logprobs": [
+                        {"token": "SAFE", "logprob": -0.5},
+                        {"token": "FAIL", "logprob": -1.5},
+                    ]
+                }
+            ]
+        )
         mock_client_class.return_value = mock_client
 
         backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
-        prob_safe, prob_risk = backend.extract_logit_probs(
+        prob_safe, prob_fail = backend.extract_logit_probs(
             [{"role": "user", "content": "Test"}],
             LogitExtractionConfig(),
         )
 
-        assert prob_safe == 1.0
-        assert prob_risk == 0.0
+        # With logprobs -0.5 and -1.5, softmax gives ~73% SAFE, ~27% FAIL
+        assert 0.7 < prob_safe < 0.8
+        assert 0.2 < prob_fail < 0.3
 
     @patch('ollama.Client')
     def test_ollama_extract_logit_probs_fail(self, mock_client_class):
-        """Test logit extraction for risky content."""
+        """Test logit extraction for risky content with logprobs."""
         mock_client = MagicMock()
         mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
-        mock_client.chat.return_value = {"message": {"content": "FAIL"}}
+        # FAIL has higher logprob - use Pydantic-like response structure
+        mock_client.generate.return_value = _create_mock_logprobs_response(
+            "FAIL",
+            [
+                {
+                    "token": "FAIL",
+                    "logprob": -0.3,
+                    "top_logprobs": [
+                        {"token": "FAIL", "logprob": -0.3},
+                        {"token": "SAFE", "logprob": -2.0},
+                    ]
+                }
+            ]
+        )
         mock_client_class.return_value = mock_client
 
         backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
@@ -173,8 +246,87 @@ class TestOllamaBackend:
             LogitExtractionConfig(),
         )
 
-        assert prob_safe == 0.0
-        assert prob_fail == 1.0
+        # With logprobs -2.0 and -0.3, FAIL should dominate (~85%)
+        assert prob_fail > 0.8
+        assert prob_safe < 0.2
+
+    @patch('ollama.Client')
+    def test_ollama_extract_logit_probs_equal(self, mock_client_class):
+        """Test logit extraction when SAFE and FAIL have equal logprobs."""
+        mock_client = MagicMock()
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
+        # Equal logprobs = 50/50 probability - use Pydantic-like response structure
+        mock_client.generate.return_value = _create_mock_logprobs_response(
+            "SAFE",
+            [
+                {
+                    "token": "SAFE",
+                    "logprob": -1.0,
+                    "top_logprobs": [
+                        {"token": "SAFE", "logprob": -1.0},
+                        {"token": "FAIL", "logprob": -1.0},
+                    ]
+                }
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
+        prob_safe, prob_fail = backend.extract_logit_probs(
+            [{"role": "user", "content": "Hello"}],
+            LogitExtractionConfig(),
+        )
+
+        # Equal logprobs = 50% each
+        assert abs(prob_safe - 0.5) < 0.01
+        assert abs(prob_fail - 0.5) < 0.01
+        assert abs(prob_safe + prob_fail - 1.0) < 0.01
+
+    @patch('ollama.Client')
+    def test_ollama_extract_logit_probs_error_when_logprobs_missing(self, mock_client_class):
+        """Test that ValueError is raised when logprobs not returned."""
+        mock_client = MagicMock()
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
+        # No logprobs in response - use Pydantic-like response structure
+        mock_client.generate.return_value = _create_mock_logprobs_response("SAFE", [])
+        mock_client_class.return_value = mock_client
+
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
+
+        with pytest.raises(ValueError, match="Ollama did not return logprobs"):
+            backend.extract_logit_probs(
+                [{"role": "user", "content": "Test"}],
+                LogitExtractionConfig(),
+            )
+
+    @patch('ollama.Client')
+    def test_ollama_extract_logit_probs_error_when_tokens_missing(self, mock_client_class):
+        """Test that ValueError is raised when SAFE/FAIL not in top_logprobs."""
+        mock_client = MagicMock()
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
+        # logprobs exist but SAFE/FAIL aren't in top_logprobs - use Pydantic-like response
+        mock_client.generate.return_value = _create_mock_logprobs_response(
+            "OK",
+            [
+                {
+                    "token": "OK",
+                    "logprob": -0.1,
+                    "top_logprobs": [
+                        {"token": "OK", "logprob": -0.1},
+                        {"token": "YES", "logprob": -0.5},
+                    ]
+                }
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
+
+        with pytest.raises(ValueError, match="found in top_logprobs"):
+            backend.extract_logit_probs(
+                [{"role": "user", "content": "Hello"}],
+                LogitExtractionConfig(),
+            )
 
 
 class TestAnthropicBackend:

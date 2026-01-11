@@ -6,24 +6,32 @@
 
 # Stage 1: Fast Risk Router (Logit-based classifier with TRUE logit extraction)
 stage1:
-  # Backend selection: "mlx", "ollama", "anthropic", "openai"
-  backend: mlx  # Use MLX for calibrated probabilities from raw logits
+  # Backend selection: "ollama" (default), "mlx" (Apple Silicon), "anthropic", "openai"
+  # - ollama: Cross-platform, uses native logprobs API for calibrated probabilities
+  # - mlx: Apple Silicon only, uses sequence log-likelihood (slower but accurate)
+  backend: ollama  # Default: Ollama with native logprobs
 
   # Model configuration
-  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # MLX quantized model (Apple Silicon)
-  quantized: true  # Use 8-bit quantization for speed
+  # Ollama: "qwen3:0.6b" (fast) | "qwen3:1.7b" (better accuracy)
+  # Note: Use think=False to disable thinking mode for classification
+  # MLX: "mlx-community/Qwen3-0.6B-4bit" or "Qwen/Qwen3-1.7B-MLX-8bit"
+  model_name: qwen3:0.6b  # Fast model for Stage 1 classification
+  quantized: true  # Only used by MLX backend
 
   # Generation settings
   timeout: 60  # seconds
-  temperature: 0.7  # Deterministic for consistency
   max_tokens: 3  # Only need "SAFE" or "FAIL"
-  generation:
-    temperature: 0.7
-    top_p: 0.8
-    top_k: 20
-    min_p: 0.0
-    do_sample: true
-    enable_thinking: false
+
+  # Qwen3 recommended settings for non-thinking mode (from Qwen3 docs):
+  # Temperature=0.7, TopP=0.8, TopK=20, MinP=0
+  # Note: For classification (logprobs extraction), we use temperature=0
+  # for deterministic output, but keep top_k=20 to ensure SAFE/FAIL are in top tokens.
+  temperature: 0.7  # Qwen3 non-thinking recommendation
+  top_p: 0.8        # Qwen3 non-thinking recommendation
+  top_k: 20         # Qwen3 non-thinking recommendation
+  min_p: 0.0        # Qwen3 non-thinking recommendation
+  do_sample: true
+  enable_thinking: false  # Must be false for classification
 
   # Logit extraction tokens
   # IMPORTANT: Both must be single tokens in Qwen3 vocabulary
@@ -47,8 +55,9 @@ stage1:
   # Sequence log-likelihood scoring for SAFE vs FAIL
   # This computes P(prompt + "SAFE") vs P(prompt + "FAIL") as full sequences
   # Bypasses the <think> token bias issue in Qwen3
+  # NOTE: Only needed for MLX backend. Ollama uses native logprobs (faster).
   sequence_loglikelihood:
-    enabled: true
+    enabled: false  # Disable for Ollama; set to true if using MLX backend
 
   # Prompt template mode: single template with placeholders
   # Placeholders: {context}, {current_buffer}
@@ -62,13 +71,14 @@ stage1:
     You are a PII classifier for streaming text. Classify the buffer as SAFE or FAIL.
 
     ## FAIL - Classify as FAIL if ANY of these are true:
-    - Buffer contains actual PII (email, phone, SSN, address, API key, order number)
-    - Buffer contains partial PII (e.g., "555-12" is start of phone number)
-    - User is clearly about to provide PII: assistant asked for PII AND user has started responding in a way that indicates PII is coming (e.g., "my email is", "it's", "sure, it's")
+    - Buffer contains actual PII: email, phone, SSN, address, API key, order/account numbers (any 5+ digit number in response to a request for identifying information)
+    - Buffer contains partial PII (e.g., "555-12" is start of phone number, "1830" could be start of order number)
+    - User is clearly about to provide PII: assistant asked for PII AND user has started responding with phrases like "my email is", "my order number is", "it's", "sure, it's", "my phone is"
+    - Buffer contains PII AND user is still typing (e.g., "my email is john@gmail.com and")
 
     ## SAFE - Classify as SAFE only if:
     - Buffer is a greeting, question, or general help request
-    - Buffer does not contain or lead to PII
+    - Buffer does not contain actual PII data
     - User redirects or asks a different question instead of providing requested PII
 
     ---
@@ -79,74 +89,92 @@ stage1:
     Context: (No prior context)
     Buffer: hi there, can you help me find my order?
 
-    Classification: SAFE
+    Answer: SAFE
 
     ## Example 2
+    Context:
+    User: I need help
+    Assistant: What's your order number?
+    Buffer: my order number is
+
+    Answer: FAIL
+
+    ## Example 3
+    Context:
+    User: I need help
+    Assistant: What's your order number?
+    Buffer: 1830583
+
+    Answer: FAIL
+
+    ## Example 4
+    Context:
+    User: I need help
+    Assistant: What's your order number?
+    Buffer: my order number is 1830583
+
+    Answer: FAIL
+
+    ## Example 5
+    Context:
+    User: I need help
+    Assistant: What's your order number?
+    Buffer: my order number is 1830583 and my email is
+
+    Answer: FAIL
+
+    ## Example 6
     Context:
     User: hi there?
     Assistant: What's your email address?
     Buffer: it's
 
-    Classification: FAIL
+    Answer: FAIL
 
-    ## Example 3
+    ## Example 7
     Context:
     User: hi there?
     Assistant: What's your email address?
     Buffer: john@gmail.com
 
-    Classification: FAIL
+    Answer: FAIL
 
-    ## Example 4
+    ## Example 8
     Context:
     User: I have a question
     Assistant: What's your question?
     Buffer: where is your store in Las Vegas?
 
-    Classification: SAFE
+    Answer: SAFE
 
-    ## Example 5
+    ## Example 9
     Context:
     User: hi
     Assistant: What's your phone number?
     Buffer: 555-12
 
-    Classification: FAIL
+    Answer: FAIL
 
-    ## Example 6
-    Context: (No prior context)
-    Buffer: call me at five five five one two three
-
-    Classification: FAIL
-
-    ## Example 7
+    ## Example 10
     Context:
     User: I bought a jacket last week
     Assistant: What's your email so I can look up the order?
     Buffer: actually, can I just
 
-    Classification: SAFE
+    Answer: SAFE
 
-    ## Example 8
+    ## Example 11
     Context: (No prior context)
     Assistant: How can I help you today?
     Buffer: how long does shipping take?
 
-    Classification: SAFE
+    Answer: SAFE
 
-    ## Example 9
-    Context:
-    User: I need help with my order
-    Assistant: What's your order number?
-    Buffer: sure, it's
-
-    Classification: FAIL
-
-    ## Example 10
+    ## Example 12
     Context: (No prior context)
     Buffer: i need
 
-    Classification: SAFE
+    Answer: SAFE
 
     ---
 
@@ -158,26 +186,31 @@ stage1:
     Buffer:
     {current_buffer}
 
-    Classification:
+    Answer:
 
 # Stage 2: Accurate Entity Redactor (Span extraction model)
 stage2:
-  # Backend selection: "mlx", "ollama", "anthropic", "openai"
-  backend: mlx  # Use MLX for consistent local inference
+  # Backend selection: "ollama" (default), "mlx" (Apple Silicon), "anthropic", "openai"
+  backend: ollama  # Default: Ollama for consistent local inference
 
-  # Model configuration
-  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # Same model as Stage 1
-  quantized: true
+  # Model configuration - Use larger model for entity extraction
+  # Ollama: "qwen3:1.7b" | MLX: "Qwen/Qwen3-1.7B-MLX-8bit"
+  model_name: qwen3:1.7b  # Larger model for accurate entity extraction
+  quantized: true  # Only used by MLX backend
 
   # Generation settings
   timeout: 120  # seconds
-  temperature: 0.7  # Qwen3 non-thinking recommendation
-  top_p: 0.8
-  top_k: 20
-  min_p: 0.0
-  do_sample: true
-  enable_thinking: false
   max_tokens: 200  # Enough for multiple entity extractions
+
+  # Qwen3 recommended settings for non-thinking mode (from Qwen3 docs):
+  # Temperature=0.7, TopP=0.8, TopK=20, MinP=0
+  # These settings provide good generation quality without thinking mode.
+  temperature: 0.7  # Qwen3 non-thinking recommendation
+  top_p: 0.8        # Qwen3 non-thinking recommendation
+  top_k: 20         # Qwen3 non-thinking recommendation
+  min_p: 0.0        # Qwen3 non-thinking recommendation
+  do_sample: true
+  enable_thinking: false  # Must be false for entity extraction
 
   # Prompt template for Stage 2 (entity extraction)
   prompt_template: |

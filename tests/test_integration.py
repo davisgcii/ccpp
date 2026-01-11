@@ -41,13 +41,13 @@ class TestOllamaIntegration:
             # Each model has .model, .modified_at, .digest, .size, etc.
             models = models_response.models if hasattr(models_response, 'models') else []
 
-            # Check if any qwen model is available
+            # Check if any qwen3 model is available
             available_models = [m.model for m in models if hasattr(m, 'model')]
-            has_qwen = any("qwen" in name.lower() for name in available_models)
+            has_qwen = any("qwen3" in name.lower() for name in available_models)
 
             if not has_qwen:
                 pytest.skip(
-                    f"No qwen model found. Available models: {available_models}. "
+                    f"No qwen3 model found. Available models: {available_models}. "
                     f"Run: ollama pull qwen3:1.7b"
                 )
             return True
@@ -68,20 +68,37 @@ class TestOllamaIntegration:
         print(f"✓ Ollama generate: {result}")
 
     def test_ollama_logit_extraction(self, check_ollama_available):
-        """Test logit extraction returns probabilities."""
+        """Test logit extraction with Ollama logprobs API.
+
+        Requires Ollama v0.12.11+ for logprobs support.
+        Uses SAFE/FAIL tokens (not SAFE/RISK - RISK is multi-token).
+        Uses think=False to disable Qwen3 thinking mode.
+        """
         backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
 
-        # Test with safe text
-        prob_safe, prob_risk = backend.extract_logit_probs(
-            messages=[{"role": "user", "content": "Hello, how are you?"}],
-            config=LogitExtractionConfig(token_a="SAFE", token_b="RISK"),
-        )
+        # Test with classification prompt
+        try:
+            prob_safe, prob_fail = backend.extract_logit_probs(
+                messages=[{"role": "user", "content": "You are a classifier. Respond with only SAFE or FAIL.\n\nClassify: hello\n\nAnswer:"}],
+                config=LogitExtractionConfig(token_a="SAFE", token_b="FAIL"),
+            )
 
-        assert isinstance(prob_safe, float)
-        assert isinstance(prob_risk, float)
-        assert 0.0 <= prob_safe <= 1.0
-        assert 0.0 <= prob_risk <= 1.0
-        print(f"✓ Ollama logits: safe={prob_safe}, risk={prob_risk}")
+            assert isinstance(prob_safe, float)
+            assert isinstance(prob_fail, float)
+            assert 0.0 <= prob_safe <= 1.0
+            assert 0.0 <= prob_fail <= 1.0
+            # Probabilities should sum to ~1.0
+            assert abs(prob_safe + prob_fail - 1.0) < 0.01
+            print(f"✓ Ollama logprobs: P(SAFE)={prob_safe:.3f}, P(FAIL)={prob_fail:.3f}")
+
+        except ValueError as e:
+            if "did not return logprobs" in str(e):
+                pytest.skip(
+                    "Ollama logprobs not available. "
+                    "Requires Ollama v0.12.11+ (you have older version). "
+                    "Upgrade with: brew upgrade ollama"
+                )
+            raise
 
     def test_ollama_streaming(self, check_ollama_available):
         """Test streaming generation."""
@@ -214,84 +231,84 @@ The difference between SAFE and FAIL is whether ACTUAL DATA is present:
 ## Example 1
 Context: (No prior context)
 Buffer: hi there?
-Classification: SAFE
+Answer: SAFE
 
 ## Example 2
 Context: (No prior context)
 Buffer: can you help me find my order?
-Classification: SAFE
+Answer: SAFE
 
 ## Example 3
 Context:
 User: hi there?
 Assistant: Hi! What's your email address?
 Buffer: my
-Classification: SAFE
+Answer: SAFE
 
 ## Example 4
 Context:
 User: hi there?
 Assistant: Hi! What's your email address?
 Buffer: my email is
-Classification: SAFE
+Answer: SAFE
 
 ## Example 5
 Context:
 User: hi there?
 Assistant: Hi! What's your email address?
 Buffer: my email is john@gmail.com
-Classification: FAIL
+Answer: FAIL
 
 ## Example 6
 Context:
 User: I need help with my order
 Assistant: I'd be happy to help! What's your order number?
 Buffer: my order number is
-Classification: SAFE
+Answer: SAFE
 
 ## Example 7
 Context:
 User: I need help with my order
 Assistant: I'd be happy to help! What's your order number?
 Buffer: my order number is ABDJJ8891
-Classification: FAIL
+Answer: FAIL
 
 ## Example 8
 Context: (No prior context)
 Buffer: call me at 555-123-4567
-Classification: FAIL
+Answer: FAIL
 
 ## Example 9
 Context:
 User: I want to return something
 Buffer: where is your store in Las Vegas?
-Classification: SAFE
+Answer: SAFE
 
 ## Example 10
 Context: (No prior context)
 Buffer: i need help finding my
-Classification: SAFE
+Answer: SAFE
 
 ## Example 11
 Context:
 User: hi
 Assistant: What's your phone number?
 Buffer: it's
-Classification: SAFE
+Answer: SAFE
 
 ## Example 12
 Context:
 User: hi
 Assistant: What's your phone number?
 Buffer: it's 555
-Classification: SAFE
+Answer: SAFE
 
 ## Example 13
 Context:
 User: hi
 Assistant: What's your phone number?
 Buffer: it's 555-123-4567
-Classification: FAIL
+Answer: FAIL
 
 ---
 
@@ -305,7 +322,7 @@ Context:
 Buffer:
 {current_buffer}
 
-Classification:"""
+Answer:"""
 
     @pytest.fixture(scope="class")
     def stage1_router(self):

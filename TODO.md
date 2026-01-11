@@ -7,15 +7,19 @@ CC++-inspired streaming PII masker for black-box LLMs.
 **Core pipeline is functional** - Stage 1 classification and Stage 2 redaction are working.
 
 ### Completed
-- MLX backend with sequence log-likelihood (batched prefilling)
+- Ollama backend with native logprobs API (default)
+- MLX backend with sequence log-likelihood (Apple Silicon)
 - Two-stage cascade architecture
 - Fast heuristics (regex patterns)
 - Stream break detection and EMA smoothing
 - GUI client with real-time visualization
 - Configuration system (YAML)
-- 128 unit/integration tests passing
+- 131 unit/integration tests passing
+- Prompt templates with `Answer:` ending (prevents model echo)
+- Qwen3 `think=False` integration
 
 ### Not Started
+- Structured outputs for reliable SAFE/FAIL classification
 - Training data generation
 - Model fine-tuning
 - Evaluation and calibration
@@ -91,6 +95,11 @@ Each record needs:
 ---
 
 ## Maintenance Tasks
+
+### Structured Outputs Investigation
+- [ ] Research Ollama structured outputs / JSON mode for classification
+- [ ] Test constrained generation to force SAFE/FAIL output
+- [ ] Compare accuracy: logprobs vs structured outputs vs text generation
 
 ### Polish
 - [ ] Manual GUI testing (end-to-end flow)

@@ -27,10 +27,16 @@ class ApprovedModel(Enum):
     """
 
     # Local models (via Ollama)
-    QWEN3_1_7B = "qwen3:1.7b"  # Fast, lightweight - ideal for Stage 1 and Stage 2
+    # Note: Use think=False with Qwen3 to disable thinking mode for classification
+    QWEN3_0_6B = "qwen3:0.6b"  # Fast Qwen3 model for Stage 1 (522MB)
+    QWEN3_1_7B = "qwen3:1.7b"  # Larger Qwen3 model for Stage 2 (1.4GB)
+    GEMMA3_1B = "gemma3:1b"  # Alternative: Gemma3 (815MB, no thinking mode)
+    GEMMA3_4B = "gemma3:4b"  # Alternative: Gemma3 (3.3GB, no thinking mode)
 
     # Local models (via MLX - Apple Silicon with true logit extraction)
     QWEN3_1_7B_MLX = "Qwen/Qwen3-1.7B-MLX-8bit"  # Quantized MLX model for M-series
+    QWEN3_0_6B_MLX_4BIT = "mlx-community/Qwen3-0.6B-4bit"  # Smallest/fastest for Stage 1
+    QWEN3_0_6B_MLX_8BIT = "mlx-community/Qwen3-0.6B-8bit"  # Faster Stage 1, better accuracy
 
     # Cloud models (via APIs)
     CLAUDE_HAIKU_4_5 = "claude-haiku-4-5-20251001"  # Fast, cost-effective (Anthropic)

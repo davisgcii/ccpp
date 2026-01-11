@@ -7,10 +7,11 @@ A CC++-inspired streaming exchange classifier for PII detection and masking in b
 **ACTIVE DEVELOPMENT** - Core pipeline implemented with working two-stage cascade:
 
 ✅ **Working**:
-- Stage 1 classification using sequence log-likelihood with batched prefilling
-- Stage 2 entity extraction with MLX text generation
+- Stage 1 classification using Ollama native logprobs (with `think=False` for Qwen3)
+- Stage 2 entity extraction with Ollama text generation
 - GUI client with real-time visualization
 - Fast heuristics (regex patterns)
+- MLX backend available for Apple Silicon (sequence log-likelihood)
 
 ⏸️ **Not Started**:
 - Training data generation
@@ -23,8 +24,8 @@ See [TODO.md](TODO.md) for detailed progress tracking.
 
 This project implements a two-stage cascade for streaming PII detection and masking:
 
-- **Stage 1 (Router)**: Fast per-token classification using MLX with Qwen/Qwen3-1.7B-MLX-8bit
-- **Stage 2 (Redactor)**: Accurate entity extraction using MLX with Qwen/Qwen3-1.7B-MLX-8bit
+- **Stage 1 (Router)**: Fast classification using Ollama with qwen3:0.6b (native logprobs)
+- **Stage 2 (Redactor)**: Accurate entity extraction using Ollama with qwen3:1.7b
 
 ## Features
 
@@ -32,8 +33,8 @@ This project implements a two-stage cascade for streaming PII detection and mask
 - **Stream break detection**: Timeout-based (default 3s) for natural conversation boundaries
 - **Three-condition masking**: any_risk_in_buffer OR ema≥T_high OR strong_heuristic_match
 - **EMA natural decay**: Cross-break PII detection without manual reset
-- **True logit extraction**: MLX backend extracts calibrated probabilities from raw logits (not text generation)
-- **LLM harness**: Unified interface for MLX (local), Ollama (local), and API backends (Claude, GPT)
+- **Native logprobs**: Ollama backend extracts calibrated probabilities via logprobs API (single forward pass)
+- **LLM harness**: Unified interface for Ollama (default), MLX (Apple Silicon), and API backends (Claude, GPT)
 
 ## Quick Start
 
@@ -61,20 +62,20 @@ uv run python scripts/gui_client.py
 # Logs available at /tmp/gui_debug.log
 ```
 
-**Note**: First run will download Qwen/Qwen3-1.7B-MLX-8bit model (~1.7GB) from HuggingFace.
+**Note**: Requires Ollama with qwen3 models. Run `ollama pull qwen3:0.6b && ollama pull qwen3:1.7b` first.
 
 ## Configuration
 
-CC++ uses a flexible YAML-based configuration system. Current implementation uses **MLX backend** with Apple Silicon optimizations.
+CC++ uses a flexible YAML-based configuration system. Current implementation uses **Ollama backend** by default (cross-platform). MLX backend available for Apple Silicon.
 
 ### Current Configuration (`configs/default.yaml`)
 
-**Backend**: MLX (Apple Silicon, local inference)
-- **Stage 1 Router**: `Qwen/Qwen3-1.7B-MLX-8bit` with true logit extraction
-- **Stage 2 Redactor**: `Qwen/Qwen3-1.7B-MLX-8bit` with text generation
+**Backend**: Ollama (cross-platform, local inference)
+- **Stage 1 Router**: `qwen3:0.6b` with native logprobs API
+- **Stage 2 Redactor**: `qwen3:1.7b` with text generation
 
 **Key Parameters**:
-- **Stream break timeout**: `3000ms` (3 seconds) - wait time before masking decision
+- **Stream break timeout**: `2000ms` (2 seconds) - wait time before masking decision
 - **EMA beta**: `0.85` - smoothing factor for risk scores
 - **Thresholds**:
   - `t_high: 0.6` - escalate to Stage 2 when EMA crosses this
@@ -83,9 +84,9 @@ CC++ uses a flexible YAML-based configuration system. Current implementation use
 - **Heuristics**: Enabled (regex patterns for emails, phones, SSNs, API keys)
 
 **Logit Extraction** (Stage 1):
-- Tokens: `SAFE` (ID: 83788), `FAIL` (ID: 36973)
-- Extracts raw logits and applies softmax for calibrated probabilities
-- ~5-6x faster than text generation
+- Tokens: `SAFE`, `FAIL` (uses `Answer:` prompt ending to prevent model echo)
+- Uses `think=False` to disable Qwen3 thinking mode
+- Extracts logprobs and applies softmax for calibrated probabilities
 
 See [Configuration Guide](docs/CONFIG.md) for complete reference and `configs/default.yaml` for full configuration.
 
