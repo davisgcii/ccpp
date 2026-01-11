@@ -13,6 +13,7 @@ from ccpp.llm.base import (
 from ccpp.llm.factory import create_backend_from_config
 from ccpp.llm.ollama_backend import OllamaBackend
 from ccpp.llm.api_backend import AnthropicBackend, OpenAIBackend
+from ccpp.types import ApprovedModel
 
 
 class TestGenerationConfig:
@@ -62,49 +63,49 @@ class TestLogitExtractionConfig:
 class TestOllamaBackend:
     """Tests for OllamaBackend."""
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_ollama_backend_init_success(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_ollama_backend_init_success(self, mock_client_class):
         """Test successful OllamaBackend initialization."""
-        # Mock client
+        # Mock client instance
         mock_client = MagicMock()
         mock_client.list.return_value = {
-            "models": [{"name": "qwen:1.7b"}, {"name": "qwen:4b"}]
+            "models": [{"name": ApprovedModel.QWEN3_1_7B.value}]
         }
-        mock_ollama.Client.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-        backend = OllamaBackend(model_name="qwen:1.7b")
-        assert backend.model_name == "qwen:1.7b"
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
+        assert backend.model_name == ApprovedModel.QWEN3_1_7B.value
         assert backend.timeout == 60
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_ollama_backend_model_not_found(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_ollama_backend_model_not_found(self, mock_client_class):
         """Test OllamaBackend when model not found."""
         mock_client = MagicMock()
         mock_client.list.return_value = {"models": [{"name": "other:model"}]}
-        mock_ollama.Client.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
         with pytest.raises(ValueError, match="Model .* not found"):
-            OllamaBackend(model_name="qwen:1.7b")
+            OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_ollama_backend_connection_error(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_ollama_backend_connection_error(self, mock_client_class):
         """Test OllamaBackend connection error."""
         mock_client = MagicMock()
         mock_client.list.side_effect = Exception("Connection refused")
-        mock_ollama.Client.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
         with pytest.raises(ConnectionError, match="Cannot connect to Ollama"):
-            OllamaBackend(model_name="qwen:1.7b")
+            OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_ollama_generate(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_ollama_generate(self, mock_client_class):
         """Test Ollama text generation."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": "qwen:1.7b"}]}
+        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
         mock_client.chat.return_value = {"message": {"content": "Hello there!"}}
-        mock_ollama.Client.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-        backend = OllamaBackend(model_name="qwen:1.7b")
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
         result = backend.generate(
             [{"role": "user", "content": "Say hello"}],
             GenerationConfig(max_tokens=10),
@@ -113,15 +114,15 @@ class TestOllamaBackend:
         assert result == "Hello there!"
         mock_client.chat.assert_called_once()
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_ollama_extract_logit_probs_safe(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_ollama_extract_logit_probs_safe(self, mock_client_class):
         """Test logit probability extraction returning SAFE."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": "qwen:1.7b"}]}
+        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
         mock_client.chat.return_value = {"message": {"content": "SAFE"}}
-        mock_ollama.Client.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-        backend = OllamaBackend(model_name="qwen:1.7b")
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
         prob_safe, prob_risk = backend.extract_logit_probs(
             [{"role": "user", "content": "Test"}],
             LogitExtractionConfig(),
@@ -130,15 +131,15 @@ class TestOllamaBackend:
         assert prob_safe == 1.0
         assert prob_risk == 0.0
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_ollama_extract_logit_probs_risk(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_ollama_extract_logit_probs_risk(self, mock_client_class):
         """Test logit probability extraction returning RISK."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": "qwen:1.7b"}]}
+        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
         mock_client.chat.return_value = {"message": {"content": "RISK"}}
-        mock_ollama.Client.return_value = mock_client
+        mock_client_class.return_value = mock_client
 
-        backend = OllamaBackend(model_name="qwen:1.7b")
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
         prob_safe, prob_risk = backend.extract_logit_probs(
             [{"role": "user", "content": "My email is test@test.com"}],
             LogitExtractionConfig(),
@@ -157,28 +158,28 @@ class TestAnthropicBackend:
             with pytest.raises(ValueError, match="API key required"):
                 AnthropicBackend()
 
-    @patch('src.ccpp.llm.api_backend.anthropic')
-    def test_anthropic_backend_init_with_env_key(self, mock_anthropic):
+    @patch('anthropic.Anthropic')
+    def test_anthropic_backend_init_with_env_key(self, mock_anthropic_class):
         """Test AnthropicBackend initialization with env var."""
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test"}):
             backend = AnthropicBackend()
-            assert backend.model_name == "claude-3-5-haiku-20241022"
+            assert backend.model_name == ApprovedModel.CLAUDE_HAIKU_4_5.value
 
-    @patch('src.ccpp.llm.api_backend.anthropic')
-    def test_anthropic_backend_init_with_param_key(self, mock_anthropic):
+    @patch('anthropic.Anthropic')
+    def test_anthropic_backend_init_with_param_key(self, mock_anthropic_class):
         """Test AnthropicBackend initialization with parameter."""
         backend = AnthropicBackend(api_key="sk-ant-test")
-        assert backend.model_name == "claude-3-5-haiku-20241022"
+        assert backend.model_name == ApprovedModel.CLAUDE_HAIKU_4_5.value
 
-    @patch('src.ccpp.llm.api_backend.anthropic')
-    def test_anthropic_generate(self, mock_anthropic):
+    @patch('anthropic.Anthropic')
+    def test_anthropic_generate(self, mock_anthropic_class):
         """Test Anthropic text generation."""
         # Mock client and response
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="Hello from Claude!")]
         mock_client.messages.create.return_value = mock_response
-        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic_class.return_value = mock_client
 
         backend = AnthropicBackend(api_key="sk-ant-test")
         result = backend.generate(
@@ -198,12 +199,12 @@ class TestOpenAIBackend:
             with pytest.raises(ValueError, match="API key required"):
                 OpenAIBackend()
 
-    @patch('src.ccpp.llm.api_backend.openai')
-    def test_openai_backend_init_with_env_key(self, mock_openai):
+    @patch('openai.OpenAI')
+    def test_openai_backend_init_with_env_key(self, mock_openai_class):
         """Test OpenAIBackend initialization with env var."""
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
             backend = OpenAIBackend()
-            assert backend.model_name == "gpt-4o-mini"
+            assert backend.model_name == ApprovedModel.GPT_5_MINI.value
 
 
 class TestBackendFactory:
@@ -219,37 +220,37 @@ class TestBackendFactory:
         with pytest.raises(ValueError, match="Unknown backend"):
             create_backend_from_config({"backend": "unknown"})
 
-    @patch('src.ccpp.llm.ollama_backend.ollama')
-    def test_factory_creates_ollama_backend(self, mock_ollama):
+    @patch('ollama.Client')
+    def test_factory_creates_ollama_backend(self, mock_client_class):
         """Test factory creates Ollama backend."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": "qwen:1.7b"}]}
-        mock_ollama.Client.return_value = mock_client
+        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
+        mock_client_class.return_value = mock_client
 
-        config = {"backend": "ollama", "model_name": "qwen:1.7b"}
+        config = {"backend": "ollama", "model_name": ApprovedModel.QWEN3_1_7B.value}
         backend = create_backend_from_config(config)
 
         assert isinstance(backend, OllamaBackend)
-        assert backend.model_name == "qwen:1.7b"
+        assert backend.model_name == ApprovedModel.QWEN3_1_7B.value
 
-    @patch('src.ccpp.llm.api_backend.anthropic')
-    def test_factory_creates_anthropic_backend(self, mock_anthropic):
+    @patch('anthropic.Anthropic')
+    def test_factory_creates_anthropic_backend(self, mock_anthropic_class):
         """Test factory creates Anthropic backend."""
         config = {
             "backend": "anthropic",
-            "model_name": "claude-3-5-haiku-20241022",
+            "model_name": ApprovedModel.CLAUDE_HAIKU_4_5.value,
             "api_key": "sk-ant-test",
         }
         backend = create_backend_from_config(config)
 
         assert isinstance(backend, AnthropicBackend)
 
-    @patch('src.ccpp.llm.api_backend.openai')
-    def test_factory_creates_openai_backend(self, mock_openai):
+    @patch('openai.OpenAI')
+    def test_factory_creates_openai_backend(self, mock_openai_class):
         """Test factory creates OpenAI backend."""
         config = {
             "backend": "openai",
-            "model_name": "gpt-4o-mini",
+            "model_name": ApprovedModel.GPT_5_MINI.value,
             "api_key": "sk-test",
         }
         backend = create_backend_from_config(config)

@@ -154,7 +154,7 @@ class TestStage1RouterIntegration:
         result = mock_router.classify([], "Test")
         assert isinstance(result, RiskScore)
 
-    @patch('src.ccpp.llm.factory.create_backend_from_config')
+    @patch('ccpp.infer.stage1_router.create_backend_from_config')
     def test_init_from_config(self, mock_factory, stage1_config):
         """Test initialization from config dict."""
         mock_backend = Mock()

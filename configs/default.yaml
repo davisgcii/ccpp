@@ -1,0 +1,154 @@
+# Default Configuration for CC++ PII Masking System
+#
+# This file defines the default settings for the streaming PII masking system.
+# You can override these settings by creating environment-specific configs
+# (e.g., dev.yaml, prod.yaml) or by passing config dicts at runtime.
+
+# Stage 1: Fast Risk Router (Logit-based classifier)
+stage1:
+  # Backend selection: "ollama", "anthropic", "openai"
+  backend: ollama
+
+  # Model configuration
+  model_name: qwen3:1.7b  # Lightweight model for fast classification
+
+  # Generation settings
+  timeout: 60  # seconds
+  temperature: 0.0  # Deterministic for consistency
+  max_tokens: 3  # Only need "SAFE" or "RISK"
+
+  # Logit extraction tokens
+  token_a: SAFE
+  token_b: RISK
+
+  # Few-shot examples (optional, can be populated from constitution)
+  few_shot_examples: []
+
+  # System prompt (optional)
+  system_prompt: |
+    You are a PII detection classifier. Respond with only "SAFE" or "RISK".
+
+# Stage 2: Accurate Entity Redactor (Span extraction model)
+stage2:
+  # Backend selection: "ollama", "anthropic", "openai"
+  backend: ollama
+
+  # Model configuration
+  model_name: qwen3:1.7b  # Larger model for accurate extraction
+
+  # Generation settings
+  timeout: 120  # seconds
+  temperature: 0.0  # Deterministic for consistency
+  max_tokens: 200  # Enough for multiple entity extractions
+
+  # Few-shot examples (optional)
+  few_shot_examples: []
+
+  # System prompt (optional)
+  system_prompt: |
+    You are a PII entity extractor. Output "PASS" if no PII, or:
+    MASK "entity" category
+    for each entity found. Categories: pii/direct, pii/indirect, credentials,
+    financial, medical, location/precise.
+
+# Streaming Configuration
+streaming:
+  # Stream break detection
+  stream_break_timeout_ms: 2000  # Time since last token to trigger masking decision (2s for voice pauses)
+
+  # Buffer settings
+  holdback_buffer_size: 2048  # Max chars before forcing decision (safety net for very long continuous speech)
+  overlap_chars: 128  # Chars to retain for cross-utterance detection
+
+  # EMA (Exponential Moving Average) settings
+  ema_beta: 0.85  # Smoothing factor (higher = more smoothing)
+  reset_ema_on_stream_break: false  # Allow cross-break detection
+
+  # Hysteresis thresholds
+  t_high: 0.6  # EMA threshold to escalate to Stage 2
+  t_low: 0.3   # EMA threshold to de-escalate
+
+  # Risk detection threshold
+  risk_threshold: 0.7  # Individual token P(RISK) to set any_risk_in_buffer
+
+# Fast Heuristics (Pre-Stage-1 patterns)
+heuristics:
+  # Enable fast regex-based detection
+  enabled: true
+
+  # Confidence threshold for direct Stage 2 escalation
+  strong_match_confidence: 0.9
+
+  # Pattern-specific settings (optional overrides)
+  patterns:
+    email:
+      enabled: true
+      confidence: 1.0
+    phone:
+      enabled: true
+      confidence: 0.95
+    ssn:
+      enabled: true
+      confidence: 1.0
+    credit_card:
+      enabled: true
+      confidence: 0.95  # Luhn check adds confidence
+    aws_key:
+      enabled: true
+      confidence: 1.0
+    stripe_key:
+      enabled: true
+      confidence: 1.0
+    github_token:
+      enabled: true
+      confidence: 1.0
+    pem_key:
+      enabled: true
+      confidence: 1.0
+
+# Allowlist Configuration
+allowlist:
+  # Example domains/patterns that are safe (e.g., docs)
+  email_domains:
+    - example.com
+    - test.com
+    - localhost
+
+  # Test API keys that should not be flagged
+  test_api_keys:
+    - sk_test_  # Stripe test keys
+    - pk_test_  # Stripe public test keys
+
+# Masking Output Configuration
+masking:
+  # Default mask format
+  default_format: "[{category}]"  # e.g., [PII/DIRECT]
+
+  # Category-specific formats (optional)
+  category_formats:
+    pii/direct: "[PII/DIRECT]"
+    pii/indirect: "[PII/INDIRECT]"
+    credentials: "[CREDENTIALS]"
+    financial: "[FINANCIAL]"
+    medical: "[MEDICAL]"
+    location/precise: "[LOCATION]"
+
+  # Case sensitivity for entity matching
+  case_sensitive: true
+
+# Logging and Monitoring
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  log_decisions: true  # Log masking decisions
+  log_latency: true  # Log per-token latency
+
+# Performance Settings
+performance:
+  # Batch processing (future)
+  batch_size: 1  # Currently 1 (streaming per-token)
+
+  # Parallelization (future)
+  parallel_stage1: false  # Run Stage 1 in parallel for multiple tokens
+
+  # Cache settings (future)
+  cache_stage1_results: false  # Cache identical context+buffer combinations

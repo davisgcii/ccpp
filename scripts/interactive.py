@@ -37,6 +37,7 @@ from src.ccpp.infer.stage2_redactor import Stage2Redactor
 from src.ccpp.infer.heuristics import FastHeuristics
 from src.ccpp.llm.factory import create_backend_from_config
 from src.ccpp.llm.base import GenerationConfig
+from src.ccpp.types import ApprovedModel
 
 
 # Load environment variables from .env
@@ -51,7 +52,7 @@ class InteractiveClient:
         stage1_config_path: str,
         stage2_config_path: str,
         llm_backend: str = "anthropic",
-        llm_model: str = "claude-3-5-haiku-20241022",
+        llm_model: str = ApprovedModel.CLAUDE_HAIKU_4_5.value,
         pause_timeout: float = 3.0,
         mock_mode: bool = False,
     ):
@@ -430,11 +431,11 @@ def main():
     # Set default model based on backend
     if args.llm_model is None:
         if args.backend == "anthropic":
-            args.llm_model = "claude-3-5-haiku-20241022"
+            args.llm_model = ApprovedModel.CLAUDE_HAIKU_4_5.value
         elif args.backend == "openai":
-            args.llm_model = "gpt-4o-mini"
+            args.llm_model = ApprovedModel.GPT_5_MINI.value
         elif args.backend == "ollama":
-            args.llm_model = "qwen:4b"
+            args.llm_model = ApprovedModel.QWEN3_1_7B.value
 
     # Check for API key if using API backend
     if args.backend == "anthropic" and not os.getenv("ANTHROPIC_API_KEY"):

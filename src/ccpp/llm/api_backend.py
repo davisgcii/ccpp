@@ -7,6 +7,7 @@ import os
 from typing import Generator, Optional
 
 from .base import LLMBackend, GenerationConfig, LogitExtractionConfig
+from ccpp.types import ApprovedModel
 
 
 class AnthropicBackend(LLMBackend):
@@ -16,7 +17,7 @@ class AnthropicBackend(LLMBackend):
 
     Example:
         ```python
-        backend = AnthropicBackend(model_name="claude-3-5-haiku-20241022")
+        backend = AnthropicBackend(model_name=ApprovedModel.CLAUDE_HAIKU_4_5.value)
         result = backend.generate(
             [{"role": "user", "content": "Hello"}],
             GenerationConfig(max_tokens=10)
@@ -26,7 +27,7 @@ class AnthropicBackend(LLMBackend):
 
     def __init__(
         self,
-        model_name: str = "claude-3-5-haiku-20241022",
+        model_name: str = ApprovedModel.CLAUDE_HAIKU_4_5.value,
         api_key: Optional[str] = None,
     ):
         """Initialize Anthropic backend.
@@ -171,7 +172,7 @@ class OpenAIBackend(LLMBackend):
 
     Example:
         ```python
-        backend = OpenAIBackend(model_name="gpt-4o-mini")
+        backend = OpenAIBackend(model_name=ApprovedModel.GPT_5_MINI.value)
         result = backend.generate(
             [{"role": "user", "content": "Hello"}],
             GenerationConfig(max_tokens=10)
@@ -181,7 +182,7 @@ class OpenAIBackend(LLMBackend):
 
     def __init__(
         self,
-        model_name: str = "gpt-4o-mini",
+        model_name: str = ApprovedModel.GPT_5_MINI.value,
         api_key: Optional[str] = None,
     ):
         """Initialize OpenAI backend.

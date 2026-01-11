@@ -8,6 +8,52 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# -----------------------------------------------------------------------------
+# Approved Models
+# -----------------------------------------------------------------------------
+
+
+class ApprovedModel(Enum):
+    """Approved models for CC++ PII masking system.
+
+    Only these models should be used in configurations to ensure
+    compatibility and expected behavior.
+
+    Usage:
+        config = {
+            "backend": "ollama",
+            "model_name": ApprovedModel.QWEN3_1_7B.value
+        }
+    """
+
+    # Local models (via Ollama)
+    QWEN3_1_7B = "qwen3:1.7b"  # Fast, lightweight - ideal for Stage 1 and Stage 2
+
+    # Cloud models (via APIs)
+    CLAUDE_HAIKU_4_5 = "claude-haiku-4-5-20251001"  # Fast, cost-effective (Anthropic)
+    GPT_5_MINI = "gpt-5-mini"  # Alternative cloud option (OpenAI)
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def is_valid(cls, model_name: str) -> bool:
+        """Check if model name is approved.
+
+        Args:
+            model_name: Model name to check
+
+        Returns:
+            True if model is in approved list
+        """
+        return model_name in [m.value for m in cls]
+
+
+# -----------------------------------------------------------------------------
+# PII Categories
+# -----------------------------------------------------------------------------
+
+
 class PIICategory(Enum):
     """PII/sensitive information categories for classification and masking."""
 

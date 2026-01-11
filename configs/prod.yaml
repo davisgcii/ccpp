@@ -1,0 +1,28 @@
+# Production Configuration
+#
+# Optimized for production deployment with cloud APIs for scalability.
+# Extends default.yaml with prod-specific overrides.
+
+# Use Anthropic Haiku for Stage 1 (fast, low-cost)
+stage1:
+  backend: anthropic
+  model_name: claude-haiku-4-5-20251001
+  timeout: 10  # Cloud API should be fast
+
+# Use Anthropic Sonnet for Stage 2 (more accurate)
+stage2:
+  backend: anthropic
+  model_name: claude-haiku-4-5-20251001
+  timeout: 30
+
+# Conservative streaming settings for production voice conversations
+streaming:
+  stream_break_timeout_ms: 2000  # 2s to handle natural voice pauses
+  holdback_buffer_size: 2048  # Large buffer to avoid interrupting continuous speech
+  overlap_chars: 128  # Larger overlap for better cross-utterance detection
+
+# Production-appropriate logging
+logging:
+  level: INFO
+  log_decisions: true  # Important for audit trail
+  log_latency: true  # Monitor performance

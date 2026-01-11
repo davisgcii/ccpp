@@ -7,6 +7,7 @@ running Qwen3 or other models.
 from typing import Generator, Optional
 
 from .base import LLMBackend, GenerationConfig, LogitExtractionConfig
+from ccpp.types import ApprovedModel
 
 
 class OllamaBackend(LLMBackend):
@@ -17,7 +18,7 @@ class OllamaBackend(LLMBackend):
 
     Example:
         ```python
-        backend = OllamaBackend(model_name="qwen:1.7b")
+        backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
         result = backend.generate(
             [{"role": "user", "content": "Hello"}],
             GenerationConfig(max_tokens=10)
@@ -34,7 +35,7 @@ class OllamaBackend(LLMBackend):
         """Initialize Ollama backend.
 
         Args:
-            model_name: Ollama model name (e.g., "qwen:1.7b", "qwen:4b")
+            model_name: Ollama model name (e.g., ApprovedModel.QWEN3_1_7B.value)
             host: Ollama server host (default: uses Ollama's default)
             timeout: Request timeout in seconds
 

@@ -11,6 +11,7 @@ from ccpp.types import (
     RedactorOutput,
     HoldbackBuffer,
     RiskState,
+    ApprovedModel,
 )
 from ccpp.llm.base import LLMBackend, GenerationConfig, LogitExtractionConfig
 
@@ -54,7 +55,7 @@ def stage1_config() -> Dict:
     """Stage 1 configuration for testing."""
     return {
         "backend": "ollama",
-        "model_name": "qwen:1.7b",
+        "model_name": ApprovedModel.QWEN3_1_7B.value,
         "generation": {
             "max_tokens": 5,
             "temperature": 0.0,
@@ -90,7 +91,7 @@ def stage2_config() -> Dict:
     """Stage 2 configuration for testing."""
     return {
         "backend": "ollama",
-        "model_name": "qwen:4b",
+        "model_name": ApprovedModel.QWEN3_1_7B.value,
         "generation": {
             "max_tokens": 150,
             "temperature": 0.0,

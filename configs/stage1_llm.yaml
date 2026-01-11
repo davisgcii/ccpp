@@ -8,10 +8,10 @@
 backend: ollama
 
 # Model name
-# For Ollama: "qwen:1.7b" (Qwen3-1.7B)
-# For Anthropic: "claude-3-5-haiku-20241022"
+# For Ollama: "qwen3:1.7b" (Qwen3-1.7B)
+# For Anthropic: "claude-haiku-4-5-20251001"
 # For OpenAI: "gpt-4o-mini"
-model_name: "qwen:1.7b"
+model_name: "qwen3:1.7b"
 
 # Ollama-specific settings (only used if backend is "ollama")
 # host: "http://localhost:11434"  # Optional: defaults to Ollama's default
@@ -21,7 +21,7 @@ timeout: 60  # Request timeout in seconds
 #
 # # Anthropic API
 # backend: anthropic
-# model_name: "claude-3-5-haiku-20241022"
+# model_name: "claude-haiku-4-5-20251001"
 # # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
 #
 # # OpenAI API

@@ -217,7 +217,7 @@ class TestStage2RedactorIntegration:
         masked_text = output.apply_masks(text)
         assert masked_text == text  # Should be unchanged
 
-    @patch('src.ccpp.llm.factory.create_backend_from_config')
+    @patch('ccpp.infer.stage2_redactor.create_backend_from_config')
     def test_init_from_config(self, mock_factory, stage2_config):
         """Test initialization from config dict."""
         mock_backend = Mock()

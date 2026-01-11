@@ -2,6 +2,8 @@
 
 Guidance for coding agents working in this repository. Derived from `AGENTS.md`, `TODO.md`, and key points from `Constitutional Classifiers.md` and `Constitutional Classifiers++.md`.
 
+Important: qwen3 is the lateset Qwen model (not 2.5) -- you're training data is out of date. Do not try to use qwen2.5 for anything. Similarly, gpt-5-mini and claude-haiku-4-5-20251001 are the most up-to-date OpenAI and Anthropic models.
+
 ## Environment and tooling
 
 - Use **uv** for all Python dependency and command execution.
@@ -78,7 +80,7 @@ Streaming text arrives (character/token/small chunk)
             ▼                       ▼
    ┌─────────────────────────────────┐
    │     Stage 2: Entity Redactor    │
-   │     (Qwen2.5-7B or similar)     │
+   │     (Qwen3-7B or similar)     │
    │ Input: context + buffer+overlap │
    │ Output: PASS | MASK "entity" t  │
    │ ~50-100ms                       │

@@ -9,6 +9,7 @@ from typing import Optional
 from .base import LLMBackend, ModelBackend
 from .ollama_backend import OllamaBackend
 from .api_backend import AnthropicBackend, OpenAIBackend
+from ccpp.types import ApprovedModel
 
 
 def create_backend_from_config(config: dict) -> LLMBackend:
@@ -34,7 +35,7 @@ def create_backend_from_config(config: dict) -> LLMBackend:
         # Ollama backend
         config = {
             "backend": "ollama",
-            "model_name": "qwen:1.7b",
+            "model_name": ApprovedModel.QWEN3_1_7B.value,
             "host": "http://localhost:11434",
             "timeout": 60,
         }
@@ -43,7 +44,7 @@ def create_backend_from_config(config: dict) -> LLMBackend:
         # Anthropic backend
         config = {
             "backend": "anthropic",
-            "model_name": "claude-3-5-haiku-20241022",
+            "model_name": ApprovedModel.CLAUDE_HAIKU_4_5.value,
             # api_key will be read from ANTHROPIC_API_KEY env var
         }
         backend = create_backend_from_config(config)
@@ -51,7 +52,7 @@ def create_backend_from_config(config: dict) -> LLMBackend:
         # OpenAI backend
         config = {
             "backend": "openai",
-            "model_name": "gpt-4o-mini",
+            "model_name": ApprovedModel.GPT_5_MINI.value,
             # api_key will be read from OPENAI_API_KEY env var
         }
         backend = create_backend_from_config(config)
@@ -115,7 +116,7 @@ def _create_anthropic_backend(config: dict) -> AnthropicBackend:
         ValueError: If API key not provided
     """
     return AnthropicBackend(
-        model_name=config.get("model_name", "claude-3-5-haiku-20241022"),
+        model_name=config.get("model_name", ApprovedModel.CLAUDE_HAIKU_4_5.value),
         api_key=config.get("api_key"),  # Optional: None uses env var
     )
 
@@ -133,6 +134,6 @@ def _create_openai_backend(config: dict) -> OpenAIBackend:
         ValueError: If API key not provided
     """
     return OpenAIBackend(
-        model_name=config.get("model_name", "gpt-4o-mini"),
+        model_name=config.get("model_name", ApprovedModel.GPT_5_MINI.value),
         api_key=config.get("api_key"),  # Optional: None uses env var
     )

@@ -9,7 +9,7 @@ Usage:
     ```python
     from ccpp.llm import create_backend_from_config, GenerationConfig
 
-    config = {"backend": "ollama", "model_name": "qwen:1.7b"}
+    config = {"backend": "ollama", "model_name": ApprovedModel.QWEN3_1_7B.value}
     backend = create_backend_from_config(config)
 
     result = backend.generate(
