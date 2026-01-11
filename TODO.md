@@ -69,34 +69,38 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
   - [ ] TODO: Integrate with actual base model API streaming
 
 ### Interactive GUI client (real-time user testing)
-- [ ] `scripts/gui_client.py` - **Pop-up window application** (NOT CLI):
-  - [ ] **Input display (top)**:
-    - [ ] Show user's text as they type in real-time
-    - [ ] Risk indicators appear under words that trigger risk
-  - [ ] **Real-time risk chart (bottom)**:
-    - [ ] Live chart showing P(RISK) and EMA over time
-    - [ ] Horizontal threshold line (T_high) clearly visible
-    - [ ] EMA line turns red when crossing threshold
-    - [ ] Updates continuously as user types
-  - [ ] **Stream break and masking**:
-    - [ ] Pause detection based on configured timeout (default 3s)
-    - [ ] After pause, run masker on buffered text
-    - [ ] Display masked version directly below original text (side-by-side comparison)
-  - [ ] **Base model streaming**:
-    - [ ] Send masked text to base model (Anthropic Claude)
-    - [ ] Stream response back in window
-    - [ ] **Interruption handling**: If user starts typing during response:
-      - [ ] Pause the response streaming
-      - [ ] Only include displayed portion in conversation history
-      - [ ] Discard unplayed portion of response
-  - [ ] **UI Framework**: TBD (options: tkinter, PyQt, Gradio, Streamlit)
+- [x] `scripts/gui_client.py` - **Pop-up window application** (Gradio-based):
+  - [x] **Module structure** (`src/ccpp/gui/`):
+    - [x] `state.py` - State management with thread safety
+    - [x] `components.py` - Chart and HTML generation
+    - [x] `app.py` - Main Gradio interface and event handlers
+  - [x] **Input display (top)**:
+    - [x] Show user's text as they type in real-time (Textbox.change)
+    - [x] Risk indicators appear under words that trigger risk (HTML with red highlights)
+  - [x] **Real-time risk chart (bottom)**:
+    - [x] Live chart showing P(RISK) and EMA over time (Plotly)
+    - [x] Horizontal threshold lines (T_high and T_low) clearly visible
+    - [x] EMA line turns red when crossing threshold
+    - [x] Updates continuously as user types
+  - [x] **Stream break and masking**:
+    - [x] Pause detection based on configured timeout (default 3s via Timer)
+    - [x] After pause, run masker on buffered text
+    - [x] Display masked version directly below original text (side-by-side comparison)
+  - [x] **Base model streaming**:
+    - [x] Send masked text to base model (Anthropic Claude)
+    - [x] Display response in window
+    - [x] **Interruption handling**: If user starts typing during response:
+      - [x] Set interrupt flag
+      - [x] Only include displayed portion in conversation history
+      - [x] Discard unplayed portion of response
+  - [x] **UI Framework**: Gradio (web-based, easy to iterate)
 - [x] Environment setup:
   - [x] `.env` file for API keys (ANTHROPIC_API_KEY)
   - [x] `.env.example` template
   - [x] `.gitignore` to exclude `.env`, models, datasets
-- [ ] `scripts/client.py` (CLI version - basic, for debugging only):
+- [x] `scripts/client.py` (CLI version - basic, for debugging only):
   - [x] Basic parameter fix for ExchangePIIGuard
-  - [ ] Note: This is NOT the main interactive client (see gui_client.py above)
+  - [x] Note: This is NOT the main interactive client (see gui_client.py above)
 
 ## Phase 3: Synthetic data generation (with entity labels)
 
@@ -253,7 +257,7 @@ Each record should include:
 ---
 
 ## Current Status (update as you go)
-**Last Updated**: 2026-01-10 (evening)
+**Last Updated**: 2026-01-10 (late evening)
 
 ### Confirmed Architectural Decisions
 
@@ -285,7 +289,7 @@ Each record should include:
 **Label Schema:**
 - 7 categories: safe, pii/direct, pii/indirect, credentials, financial, medical, location/precise
 
-### Completed Tasks (Phase 2 - Mock Implementation)
+### Completed Tasks (Phase 2 - Mock Implementation) ✅
 - [x] Rewrite `src/ccpp/types.py` with PII-focused types
   - [x] `PIICategory`, `RiskScore` (with `from_logits()`), `MaskSpan` (entity text)
   - [x] `RedactorOutput` (with `apply_masks()` using exact string matching)
@@ -297,7 +301,17 @@ Each record should include:
 - [x] Implement `src/ccpp/infer/stage2_redactor.py` (mock: regex-based entity extraction)
 - [x] Implement `src/ccpp/infer/guard.py` (ExchangePIIGuard with full streaming logic)
 - [x] Implement `scripts/demo.py` (6 scenarios + interactive mode)
-- [x] Implement `scripts/client.py` (basic CLI debugging client - fixed parameter names)
+- [x] Implement `scripts/client.py` (basic CLI debugging client)
+- [x] Implement GUI interactive client (`src/ccpp/gui/` + `scripts/gui_client.py`):
+  - [x] Gradio-based pop-up window with real-time visualization
+  - [x] State management with thread safety (`state.py`)
+  - [x] Chart and HTML components (`components.py`)
+  - [x] Main application and event handlers (`app.py`)
+  - [x] Real-time risk chart with P(RISK), EMA, and threshold lines
+  - [x] Visual risk indicators (red highlights under risky characters)
+  - [x] Stream break detection (timer-based, 3s default)
+  - [x] Side-by-side original vs masked comparison
+  - [x] LLM integration with interruption handling
 - [x] Update `CLAUDE.md` with:
   - [x] Per-token architecture diagram
   - [x] Detailed conversation example with 18 turns
@@ -305,14 +319,7 @@ Each record should include:
   - [x] Buffer-scoped label explanation
 
 ### Next Steps
-1. **Phase 2 (continued)**: Implement GUI interactive client (`scripts/gui_client.py`)
-   - Choose UI framework (tkinter, PyQt, Gradio, or Streamlit)
-   - Build pop-up window with real-time chart (P(RISK) and EMA with threshold lines)
-   - Visual risk indicators under words as they trigger
-   - Side-by-side original/masked text comparison
-   - Response streaming with interruption handling (pause on user typing)
-   - Only include displayed portion of interrupted responses in history
-2. **Phase 3**: Implement synthetic data generation
+1. **Phase 3**: Implement synthetic data generation
    - Create Stage 1 training data with buffer-scoped labels
    - Create Stage 2 training data with entity text format
 3. **Phase 4**: Implement augmentations (cross-break entity splitting)
