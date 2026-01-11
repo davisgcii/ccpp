@@ -43,8 +43,9 @@ class Stage2Redactor:
         self.mock_mode = mock_mode
         self.device = device
         self.backend = None
-        self.few_shot_examples = []
-        self.system_prompt = ""
+        self.prompt_template = ""  # New: single template with {context} and {window_text}
+        self.few_shot_examples = []  # Legacy: kept for backwards compatibility
+        self.system_prompt = ""  # Legacy: kept for backwards compatibility
 
         # Initialize regex patterns (used in mock mode and for allowlist filtering)
         self.email_pattern = re.compile(
@@ -80,14 +81,18 @@ class Stage2Redactor:
         """Load configuration from dict.
 
         Args:
-            config: Configuration dict with few_shot, system_prompt keys
+            config: Configuration dict with prompt_template (preferred) or
+                    legacy few_shot/system_prompt keys
         """
-        # Load few-shot examples
+        # New: Load prompt template (preferred method)
+        self.prompt_template = config.get("prompt_template", "")
+
+        # Legacy: Load few-shot examples (for backwards compatibility)
         few_shot_cfg = config.get("few_shot", {})
         if few_shot_cfg.get("enabled", False):
             self.few_shot_examples = few_shot_cfg.get("examples", [])
 
-        # Load system prompt
+        # Legacy: Load system prompt
         self.system_prompt = config.get("system_prompt", "")
 
         # Load generation config
@@ -218,12 +223,11 @@ class Stage2Redactor:
         messages: list[dict],
         window_text: str
     ) -> list[dict]:
-        """Format prompt with few-shot examples.
+        """Format prompt for entity extraction.
 
-        Constructs a prompt with:
-        1. System prompt (entity extraction instructions)
-        2. Few-shot examples (if enabled)
-        3. Actual query (conversation context + window text)
+        Uses one of two modes:
+        1. Template mode (preferred): Uses prompt_template with {context} and {window_text}
+        2. Legacy mode: Constructs prompt from system_prompt + few_shot_examples
 
         Args:
             messages: Conversation history
@@ -232,6 +236,20 @@ class Stage2Redactor:
         Returns:
             List of message dicts ready for LLM backend
         """
+        # Format context for either mode
+        actual_context = self._format_context(messages)
+
+        # New: Template mode (preferred)
+        if self.prompt_template:
+            # Simple string substitution
+            formatted_prompt = self.prompt_template.format(
+                context=actual_context,
+                window_text=window_text,
+            )
+            # Return as single user message (template includes everything)
+            return [{"role": "user", "content": formatted_prompt}]
+
+        # Legacy: Construct from system_prompt + few_shot_examples
         prompt = []
 
         # Add system prompt
@@ -262,7 +280,6 @@ class Stage2Redactor:
             })
 
         # Add actual query
-        actual_context = self._format_context(messages)
         prompt.append({
             "role": "user",
             "content": self._format_extraction_query(actual_context, window_text),

@@ -107,29 +107,14 @@ def on_user_type(current_text: str, state: PIIClientState):
     """Handle user typing event (fires on every character change).
 
     Args:
-        current_text: Full text in the current display box (may include "User:\n" prefix and "Assistant: " content)
+        current_text: The user's input text (no prefix - label is hardcoded separately)
         state: Application state
 
     Returns:
         Tuple of (user_input_hidden, risk_html, risk_chart, status_text)
     """
-    # Extract user input (text after "User:\n" and before any "Assistant:" if present)
-    user_input = ""
-    if current_text.startswith("User:\n"):
-        text_after_user = current_text[6:]  # Remove "User:\n" prefix
-        # Check if there's an "Assistant:" marker
-        if "\nAssistant: " in text_after_user:
-            user_input = text_after_user.split("\nAssistant: ")[0]
-        else:
-            user_input = text_after_user
-    elif current_text.startswith("User: "):  # Fallback for old format
-        text_after_user = current_text[6:]  # Remove "User: " prefix
-        if "\nAssistant: " in text_after_user:
-            user_input = text_after_user.split("\nAssistant: ")[0]
-        else:
-            user_input = text_after_user
-    else:
-        user_input = current_text
+    # User input is the raw text - no prefix stripping needed
+    user_input = current_text
 
     logger.info(f"[on_user_type] Received text: {repr(user_input[:50])}{'...' if len(user_input) > 50 else ''}")
 
@@ -155,14 +140,35 @@ def on_user_type(current_text: str, state: PIIClientState):
                 format_status(),
             )
 
-        # Process through Stage 1 (per-character classification)
+        # Only classify on word boundaries (spacebar) for performance
+        # This reduces API calls and makes classification more meaningful (words vs characters)
+        last_char = user_input[-1] if user_input else ""
+        should_classify = last_char in (' ', '\n', '\t') or len(user_input) == 1
+
+        if not should_classify:
+            # Return current state without running classifier
+            logger.debug(f"[on_user_type] Skipping classification (not word boundary)")
+            risk_html = create_risk_html(
+                user_input,
+                state.risk_history,
+                threshold=state.guard.risk_threshold_immediate,
+            )
+            risk_chart = create_risk_chart(
+                state.risk_history,
+                t_high=state.t_high,
+                t_low=state.t_low,
+            )
+            return user_input, risk_html, risk_chart, format_status()
+
+        # Process through Stage 1 (on word boundary)
+        logger.info(f"[on_user_type] Classifying at word boundary: {repr(user_input[-20:])}")
         risk_score = state.stage1.classify(state.conversation, user_input)
         logger.debug(f"[on_user_type] Stage1 risk_score: {risk_score.score:.3f}, top_category: {risk_score.top_category}")
 
         # Update EMA
         should_escalate = state.guard.risk_state.update(risk_score.score)
         ema = state.guard.risk_state.ema_risk  # Get the actual EMA value from state
-        any_risk = risk_score.score >= state.guard.risk_threshold_immediate
+        any_risk = bool(risk_score.score >= state.guard.risk_threshold_immediate)
         logger.debug(f"[on_user_type] EMA updated: {ema:.3f}, should_escalate: {should_escalate}, any_risk: {any_risk}, risk_history_len: {len(state.risk_history)}")
 
         # CRITICAL: Update guard's flag if this character is high-risk
@@ -180,13 +186,13 @@ def on_user_type(current_text: str, state: PIIClientState):
 
         char_classification = CharClassification(
             char=current_char,
-            idx=char_idx,
-            risk_score=risk_score.score,
-            ema=ema,
+            idx=int(char_idx),
+            risk_score=float(risk_score.score),
+            ema=float(ema),
             classifier_prompt=classifier_prompt,
             classifier_response={
-                "p_risk": risk_score.score,
-                "p_safe": 1.0 - risk_score.score,
+                "p_risk": float(risk_score.score),
+                "p_safe": float(1.0 - risk_score.score),
                 "raw_output": f"RISK {risk_score.score:.3f}",
             },
             timestamp=time.time(),
@@ -195,12 +201,12 @@ def on_user_type(current_text: str, state: PIIClientState):
         # Store character data
         state.current_char_data.append(char_classification)
 
-        # Add to risk history
+        # Add to risk history (cast to Python native types for JSON serialization)
         risk_entry = {
-            'char_idx': char_idx,
-            'p_risk': risk_score.score,
-            'ema': ema,
-            'any_risk': any_risk,
+            'char_idx': int(char_idx),
+            'p_risk': float(risk_score.score),
+            'ema': float(ema),
+            'any_risk': any_risk,  # Already cast to bool above
         }
         state.risk_history.append(risk_entry)
         logger.debug(f"[on_user_type] Added risk_history entry: char_idx={char_idx}, p_risk={risk_score.score:.3f}, ema={ema:.3f}")
@@ -228,13 +234,14 @@ def check_and_process_buffer(state: PIIClientState):
         state: Application state
 
     Returns:
-        Tuple of (history_html, current_display, original_text, masked_text, assistant_text, status_text)
+        Tuple of (history_html, current_display, original_text, masked_text, assistant_text,
+                  status_text, risk_chart_html, risk_indicators_html)
     """
     # Check if we should process
     logger.debug("[check_and_process_buffer] Timer tick - checking buffer...")
     if not state.should_process_buffer():
         logger.debug("[check_and_process_buffer] Not ready to process, returning")
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     logger.info("[check_and_process_buffer] STREAM BREAK DETECTED - Processing buffer!")
 
@@ -335,12 +342,15 @@ def check_and_process_buffer(state: PIIClientState):
             state.add_to_conversation(user_message)
             logger.info(f"[check_and_process_buffer] FLOW: Added user message to conversation - conv_len={len(state.conversation)}, content_preview={masked_text[:50]}")
 
-            # Clear character data for next buffer
+            # Clear character data and risk history for next buffer
             state.current_char_data = []
+            state.risk_history = []  # Reset chart data
+            logger.debug("[check_and_process_buffer] Reset char_data and risk_history for next buffer")
 
-            # Reset any_risk_in_buffer flag for next buffer
+            # NOTE: EMA state is NOT reset - it persists across buffers for cross-break detection
+            # per CLAUDE.md design. Only reset any_risk_in_buffer flag.
             state.guard.any_risk_in_buffer = False
-            logger.debug("[check_and_process_buffer] Reset any_risk_in_buffer=False for next buffer")
+            logger.debug("[check_and_process_buffer] Reset any_risk_in_buffer=False for next buffer (EMA preserved)")
 
         # Call LLM (if available) - do this outside the lock
         assistant_text = ""
@@ -349,11 +359,16 @@ def check_and_process_buffer(state: PIIClientState):
         if state.anthropic:
             try:
                 logger.info(f"[check_and_process_buffer] FLOW: Calling LLM with {len(state.conversation)} messages")
+                # Strip metadata for API call (Anthropic only accepts role/content)
+                api_messages = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in state.conversation
+                ]
                 # Make synchronous call to Claude
                 response = state.anthropic.messages.create(
                     model=ApprovedModel.CLAUDE_HAIKU_4_5.value,
                     max_tokens=1024,
-                    messages=state.conversation,
+                    messages=api_messages,
                 )
 
                 logger.info(f"[check_and_process_buffer] FLOW: LLM call completed - response_len={len(response.content[0].text) if response.content else 0}")
@@ -394,20 +409,24 @@ def check_and_process_buffer(state: PIIClientState):
         # Generate updated history HTML
         history_html = create_conversation_history_html(state.conversation)
 
-        # Build current_display with "User:\n" prefix (ready for next input)
-        current_text = "User:\n"
+        # Clear input for next message (label is hardcoded separately in UI)
+        current_text = ""
+
+        # Reset chart (empty since risk_history was cleared)
+        risk_chart_html = create_risk_chart([])
+        risk_indicators_html = create_risk_html("", [])
 
         # Mark processing complete
         state.is_processing = False
 
         logger.info(f"[check_and_process_buffer] FLOW: Returning UI updates - history_len={len(history_html)}, current_text='{current_text}', original_len={len(original_text)}, masked_len={len(masked_text)}, assistant_len={len(assistant_text)}, status_len={len(status_text)}")
 
-        return history_html, current_text, original_text, masked_text, assistant_text, status_text
+        return history_html, current_text, original_text, masked_text, assistant_text, status_text, risk_chart_html, risk_indicators_html
     except Exception as e:
         logger.error(f"[check_and_process_buffer] ERROR during processing: {e}", exc_info=True)
         with state.lock:
             state.is_processing = False
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
 
 def clear_conversation(state: PIIClientState):
@@ -423,7 +442,7 @@ def clear_conversation(state: PIIClientState):
 
     return (
         create_conversation_history_html([]),  # conversation_history
-        "User:\n",  # current_display
+        "",  # current_display (label is hardcoded separately)
         create_risk_html("", []),  # risk_indicators
         create_risk_chart([]),  # risk_chart
         format_status(),  # status
@@ -490,13 +509,25 @@ def create_gui(state: PIIClientState) -> tuple:
             </div>
             ''')
 
-            # Current conversation (combined input + streaming response)
+            # User label (hardcoded, not editable)
+            gr.HTML('''
+            <div style="
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                color: #aaa;
+                padding: 4px 0;">
+                User:
+            </div>
+            ''')
+
+            # User input (clean text only - no "User:" prefix)
             current_display = gr.Textbox(
-                label="Current",
-                value="User:\n",
-                lines=8,
+                label=None,  # Label is provided by HTML above
+                value="",
+                lines=4,
                 interactive=True,
-                show_label=True,
+                show_label=False,
+                placeholder="Type your message here...",
             )
 
             # Status
@@ -536,7 +567,7 @@ def create_gui(state: PIIClientState) -> tuple:
         timer = gr.Timer(value=0.5)
         timer.tick(
             fn=lambda: check_and_process_buffer(state),
-            outputs=[conversation_history, current_display, original_display, masked_display, assistant_display, status],
+            outputs=[conversation_history, current_display, original_display, masked_display, assistant_display, status, risk_chart, risk_indicators],
         )
 
         # Clear button

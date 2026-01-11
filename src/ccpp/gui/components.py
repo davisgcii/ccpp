@@ -61,10 +61,20 @@ def create_conversation_history_html(conversation: list) -> str:
             else:
                 lines.append(f'  <div style="color: #7B9FB5;">{_escape_html(content)}</div>')
 
-            # Add mini-chart if available
+            # Add mini-chart summary if available
             if metadata and metadata.get('risk_history'):
-                mini_chart = create_mini_chart(metadata['risk_history'])
-                lines.append(f'  <div style="margin-top: 4px; font-size: 12px; opacity: 0.7;">{mini_chart}</div>')
+                was_masked = metadata.get('was_masked', False)
+                # Count entities from masker_response if available
+                masker_response = metadata.get('masker_response', {})
+                entities = masker_response.get('entities', []) if masker_response else []
+                entities_count = len(entities) if entities else (1 if was_masked else 0)
+                mini_chart = create_mini_chart(metadata['risk_history'], was_masked=was_masked, entities_count=entities_count)
+                lines.append(f'  {mini_chart}')
+
+            # Add collapsible details section for full debug info
+            if metadata:
+                details_html = _create_details_section(metadata)
+                lines.append(f'  {details_html}')
 
             lines.append('</div>')
         else:
@@ -141,6 +151,109 @@ def _escape_html(text: str) -> str:
         .replace(' ', '&nbsp;')
         .replace('\n', '<br>')
     )
+
+
+def _create_details_section(metadata: dict) -> str:
+    """Create collapsible HTML details section for debug info.
+
+    Uses HTML <details> element for native expand/collapse without JS.
+
+    Args:
+        metadata: BufferMetadata dict with char_data, masker_response, etc.
+
+    Returns:
+        HTML string with collapsible details
+    """
+    lines = []
+
+    lines.append('''<details style="margin-top: 6px; font-size: 11px; color: #888;">
+  <summary style="cursor: pointer; color: #666; user-select: none;">Show classifier details</summary>
+  <div style="margin-top: 8px; padding: 8px; background: #0a0a0a; border: 1px solid #333; border-radius: 2px; max-height: 70vh; overflow-y: auto;">''')
+
+    # Original vs Masked text
+    original = metadata.get('original_text', '')
+    masked = metadata.get('masked_text', '')
+
+    if original:
+        lines.append(f'<div style="margin-bottom: 8px;"><span style="color: #888;">Original:</span> <span style="color: #7B9FB5;">{html_lib.escape(original)}</span></div>')
+
+    if masked and masked != original:
+        lines.append(f'<div style="margin-bottom: 8px;"><span style="color: #888;">Masked:</span> <span style="color: #90ee90;">{html_lib.escape(masked)}</span></div>')
+
+    # Stage 1 classifier info (sample from highest-risk char, not first)
+    char_data = metadata.get('char_data', [])
+    if char_data:
+        # Find the highest-risk character for a representative sample
+        def get_risk(c):
+            if isinstance(c, dict):
+                return c.get('risk_score', 0)
+            return getattr(c, 'risk_score', 0)
+
+        max_risk_char = max(char_data, key=get_risk)
+        sample = max_risk_char if isinstance(max_risk_char, dict) else max_risk_char.__dict__ if hasattr(max_risk_char, '__dict__') else {}
+
+        lines.append('<div style="margin-top: 8px; border-top: 1px solid #333; padding-top: 8px;">')
+        lines.append('<div style="color: #5B9BD5; font-weight: bold; margin-bottom: 4px;">Stage 1: Router (per-token)</div>')
+
+        # Show which character had highest risk
+        char_info = sample.get('char', '?') if isinstance(sample, dict) else getattr(sample, 'char', '?')
+        char_idx = sample.get('idx', 0) if isinstance(sample, dict) else getattr(sample, 'idx', 0)
+        char_risk = get_risk(sample)
+        lines.append(f'<div style="color: #888; margin-bottom: 4px;">Highest-risk char: <span style="color: #ff6b6b;">"{html_lib.escape(str(char_info))}"</span> (index {char_idx}, P(RISK)={char_risk:.3f})</div>')
+
+        # Show raw classifier prompt (full, not truncated)
+        classifier_prompt = sample.get('classifier_prompt', [])
+        if classifier_prompt:
+            lines.append('<div style="color: #888; margin-bottom: 4px;">Full prompt sent to classifier:</div>')
+            lines.append('<pre style="background: #111; padding: 12px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 11px; max-height: 400px; overflow-y: auto; border: 1px solid #333;">')
+            for i, msg in enumerate(classifier_prompt):
+                role = msg.get('role', 'unknown').upper()
+                content = str(msg.get('content', ''))
+                escaped_content = html_lib.escape(content)
+                # Color-code by role
+                if role == 'SYSTEM':
+                    role_color = '#FFA500'  # Orange for system
+                elif role == 'USER':
+                    role_color = '#5B9BD5'  # Blue for user
+                else:
+                    role_color = '#90ee90'  # Green for assistant
+                lines.append(f'<span style="color: {role_color}; font-weight: bold;">═══ {role} ═══</span>\n{escaped_content}\n\n')
+            lines.append('</pre>')
+
+        # Show response
+        classifier_response = sample.get('classifier_response', {})
+        if classifier_response:
+            p_risk = classifier_response.get('p_risk', 0)
+            p_safe = classifier_response.get('p_safe', 0)
+            lines.append(f'<div style="margin-top: 4px;"><span style="color: #888;">Response:</span> P(RISK)={p_risk:.3f}, P(SAFE)={p_safe:.3f}</div>')
+
+        lines.append('</div>')
+
+    # Stage 2 masker info
+    masker_response = metadata.get('masker_response')
+    if masker_response:
+        lines.append('<div style="margin-top: 8px; border-top: 1px solid #333; padding-top: 8px;">')
+        lines.append('<div style="color: #ff6b6b; font-weight: bold; margin-bottom: 4px;">Stage 2: Redactor (buffer-level)</div>')
+
+        raw_output = masker_response.get('raw_output', '')
+        if raw_output:
+            lines.append(f'<div><span style="color: #888;">Output:</span> <span style="color: #ff6b6b;">{html_lib.escape(raw_output)}</span></div>')
+
+        entities = masker_response.get('entities', [])
+        if entities:
+            lines.append(f'<div><span style="color: #888;">Entities:</span> {len(entities)} detected</div>')
+
+        lines.append('</div>')
+    elif metadata.get('was_masked'):
+        lines.append('<div style="margin-top: 8px; border-top: 1px solid #333; padding-top: 8px;">')
+        lines.append('<div style="color: #ff6b6b; font-weight: bold; margin-bottom: 4px;">Stage 2: Redactor</div>')
+        lines.append('<div style="color: #888;">Masking applied</div>')
+        lines.append('</div>')
+
+    lines.append('  </div>')
+    lines.append('</details>')
+
+    return '\n'.join(lines)
 
 
 def create_risk_chart(
@@ -340,40 +453,31 @@ def _char_to_x(char_idx: int, min_char: int, char_range: int, width: int) -> int
 
 
 def create_hoverable_text(text: str, char_data: list, buffer_metadata: Optional[dict] = None) -> str:
-    """Create HTML with hoverable spans for tooltip debugging.
+    """Create HTML text with clickable words that expand to show classifier data.
+
+    Uses click-to-expand (not hover) for better UX. Each word can be clicked
+    to show its classification details in a scrollable popup.
 
     Args:
         text: The text to render (masked version)
-        char_data: List of CharClassification dicts
+        char_data: List of CharClassification dicts (from original text)
         buffer_metadata: Optional buffer metadata for masker info
 
     Returns:
-        HTML string with hoverable characters
+        HTML string with clickable text
     """
-    parts = []
+    import re
 
-    for i, char in enumerate(text):
-        # Find matching character data
-        char_info = None
-        if i < len(char_data):
-            char_info = char_data[i]
+    # Highlight masked placeholders in the text
+    escaped_text = _escape_html(text)
+    # Make [PII/...] placeholders red and bold
+    escaped_text = re.sub(
+        r'\[([A-Z/_]+)\]',
+        r'<span style="color: #ff6b6b; font-weight: bold;">[\1]</span>',
+        escaped_text
+    )
 
-        if char_info:
-            # Build tooltip content
-            tooltip = _format_tooltip(char_info, buffer_metadata)
-            escaped_tooltip = html_lib.escape(tooltip)
-            escaped_char = _escape_html(char)
-
-            parts.append(
-                f'<span class="hoverable" data-tooltip="{escaped_tooltip}" data-idx="{i}">'
-                f'{escaped_char}'
-                f'</span>'
-            )
-        else:
-            # No metadata for this character (shouldn't happen often)
-            parts.append(_escape_html(char))
-
-    return ''.join(parts)
+    return escaped_text
 
 
 def _format_tooltip(char_info: dict, buffer_metadata: Optional[dict] = None) -> str:
@@ -437,47 +541,50 @@ def _format_tooltip(char_info: dict, buffer_metadata: Optional[dict] = None) -> 
     return "\n".join(lines)
 
 
-def create_mini_chart(risk_history: list) -> str:
-    """Create flattened 2-line chart aligned with text.
+def create_mini_chart(risk_history: list, was_masked: bool = False, entities_count: int = 0) -> str:
+    """Create compact summary line for conversation history.
 
     Args:
         risk_history: List of risk_history dicts
+        was_masked: Whether masking was applied
+        entities_count: Number of entities masked
 
     Returns:
-        HTML string with colored mini-chart
+        HTML string with summary metrics
     """
     if not risk_history:
         return ""
 
-    risk_line = []
-    ema_line = []
+    # Calculate summary stats
+    p_risks = [r['p_risk'] for r in risk_history]
+    emas = [r['ema'] for r in risk_history]
 
-    for record in risk_history:
-        char_idx = record['char_idx']
-        p_risk = record['p_risk']
-        ema = record['ema']
+    peak_risk = max(p_risks)
+    final_ema = emas[-1]
+    high_risk_count = sum(1 for r in p_risks if r >= 0.7)
 
-        # Pad with spaces to align
-        while len(risk_line) < char_idx:
-            risk_line.append(' ')
-            ema_line.append(' ')
+    # Determine status color based on outcome
+    if was_masked:
+        status_color = "#ff6b6b"  # Red for masked
+        status_text = f"MASKED ({entities_count} entities)"
+    elif peak_risk >= 0.7:
+        status_color = "#FFA500"  # Orange for high risk but not masked
+        status_text = "HIGH RISK"
+    else:
+        status_color = "#90ee90"  # Green for safe
+        status_text = "SAFE"
 
-        # Risk indicator: · for low, x for high
-        if p_risk >= 0.7:
-            risk_line.append('x')
-        else:
-            risk_line.append('·')
+    # Determine EMA color
+    ema_color = "#ff6b6b" if final_ema >= 0.6 else ("#FFA500" if final_ema >= 0.3 else "#90ee90")
 
-        # EMA indicator: always x
-        ema_line.append('x')
-
-    risk_html = ''.join(risk_line)
-    ema_html = ''.join(ema_line)
-
-    # Color-code the lines
-    return f'''<div style="font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.3;">
-<span style="color: #5B9BD5;">Risk: {risk_html}</span>
-<span style="color: #90ee90;">EMA:  {ema_html}</span>
+    return f'''<div style="font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.4; margin-top: 4px; padding: 4px 6px; background: #0a0a0a; border-radius: 2px;">
+<span style="color: {status_color}; font-weight: bold;">{status_text}</span>
+<span style="color: #666;"> | </span>
+<span style="color: #888;">Peak: </span><span style="color: #5B9BD5;">{peak_risk:.2f}</span>
+<span style="color: #666;"> | </span>
+<span style="color: #888;">EMA: </span><span style="color: {ema_color};">{final_ema:.2f}</span>
+<span style="color: #666;"> | </span>
+<span style="color: #888;">High-risk chars: </span><span style="color: {'#ff6b6b' if high_risk_count > 0 else '#666'};">{high_risk_count}</span>
 </div>'''
 
 

@@ -41,8 +41,9 @@ class Stage1Router:
         self.mock_mode = mock_mode
         self.device = device
         self.backend = None
-        self.few_shot_examples = []
-        self.system_prompt = ""
+        self.prompt_template = ""  # New: single template with {context} and {current_buffer}
+        self.few_shot_examples = []  # Legacy: kept for backwards compatibility
+        self.system_prompt = ""  # Legacy: kept for backwards compatibility
         self.logit_config = LogitExtractionConfig()
 
         if not mock_mode:
@@ -65,14 +66,18 @@ class Stage1Router:
         """Load configuration from dict.
 
         Args:
-            config: Configuration dict with few_shot, system_prompt, logit_extraction keys
+            config: Configuration dict with prompt_template (preferred) or
+                    legacy few_shot/system_prompt keys
         """
-        # Load few-shot examples
+        # New: Load prompt template (preferred method)
+        self.prompt_template = config.get("prompt_template", "")
+
+        # Legacy: Load few-shot examples (for backwards compatibility)
         few_shot_cfg = config.get("few_shot", {})
         if few_shot_cfg.get("enabled", False):
             self.few_shot_examples = few_shot_cfg.get("examples", [])
 
-        # Load system prompt
+        # Legacy: Load system prompt
         self.system_prompt = config.get("system_prompt", "")
 
         # Load logit extraction config
@@ -167,12 +172,11 @@ class Stage1Router:
         messages: list[dict],
         current_text: str
     ) -> list[dict]:
-        """Format prompt with few-shot examples.
+        """Format prompt for classification.
 
-        Constructs a prompt with:
-        1. System prompt (PII classification instructions)
-        2. Few-shot examples (if enabled)
-        3. Actual query (conversation context + current buffer)
+        Uses one of two modes:
+        1. Template mode (preferred): Uses prompt_template with {context} and {current_buffer}
+        2. Legacy mode: Constructs prompt from system_prompt + few_shot_examples
 
         Args:
             messages: Conversation history
@@ -181,6 +185,20 @@ class Stage1Router:
         Returns:
             List of message dicts ready for LLM backend
         """
+        # Format context for either mode
+        actual_context = self._format_context(messages)
+
+        # New: Template mode (preferred)
+        if self.prompt_template:
+            # Simple string substitution
+            formatted_prompt = self.prompt_template.format(
+                context=actual_context,
+                current_buffer=current_text,
+            )
+            # Return as single user message (template includes everything)
+            return [{"role": "user", "content": formatted_prompt}]
+
+        # Legacy: Construct from system_prompt + few_shot_examples
         prompt = []
 
         # Add system prompt
@@ -211,7 +229,6 @@ class Stage1Router:
             })
 
         # Add actual query
-        actual_context = self._format_context(messages)
         prompt.append({
             "role": "user",
             "content": self._format_classification_query(actual_context, current_text),
@@ -240,16 +257,25 @@ class Stage1Router:
         return "\n".join(context_parts)
 
     def _format_classification_query(self, context: str, current_buffer: str) -> str:
-        """Format classification query.
+        """Format classification query with clear markdown sections.
 
         Args:
             context: Formatted conversation context
             current_buffer: Current buffer text
 
         Returns:
-            Formatted query string
+            Formatted query string with clear delineation
         """
-        return f"Context:\n{context}\n\nCurrent buffer:\n{current_buffer}"
+        return f"""---
+## Conversation Context
+{context}
+
+---
+## Current Buffer (CLASSIFY THIS)
+```
+{current_buffer}
+```
+---"""
 
     def _format_prompt(self, messages: list[dict], current_text: str) -> str:
         """Format prompt for model (exchange-aware).

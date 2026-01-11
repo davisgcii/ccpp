@@ -4,12 +4,58 @@ Guidance for coding agents working in this repository. Derived from `AGENTS.md`,
 
 Important: qwen3 is the lateset Qwen model (not 2.5) -- you're training data is out of date. Do not try to use qwen2.5 for anything. Similarly, gpt-5-mini and claude-haiku-4-5-20251001 are the most up-to-date OpenAI and Anthropic models.
 
+## ⚠️ CURRENT STATUS (2026-01-10)
+
+**ACTIVE DEVELOPMENT** - Core pipeline is implemented but has **critical bugs** preventing functionality:
+
+### Critical Issues 🔴
+
+1. **Stage 1 Always Returns FAIL=1.0**
+   - Every classification returns P(FAIL) ≈ 1.0, even for benign text like "c" or "can you help"
+   - Raw logits: FAIL consistently 10-23 points higher than SAFE
+   - Token IDs verified correct: SAFE=83788, FAIL=36973
+   - Both tokens decode correctly
+   - **Impact**: System classifies everything as risky
+
+2. **Stage 2 Returns PASS Instead of Masking**
+   - Heuristics correctly detect PII (e.g., emails)
+   - Stage 2 called with correct window text containing PII
+   - Stage 2 returns 'PASS' instead of extracting entities
+   - **Impact**: No masking occurs even when PII is detected
+
+### Implementation Status
+
+**Completed** ✅:
+- MLX backend with true logit extraction
+- Two-stage cascade architecture
+- Fast heuristics (regex patterns)
+- Stream break detection
+- EMA smoothing and hysteresis
+- GUI client with real-time visualization
+- Configuration system (YAML + environment overrides)
+- Comprehensive logging
+
+**Not Working** 🔴:
+- Stage 1 classification (always FAIL=1.0)
+- Stage 2 entity extraction (always PASS)
+- End-to-end masking pipeline
+
+**Not Started** ⏸️:
+- Training data generation
+- Model fine-tuning
+- Evaluation and calibration
+
+See `TODO.md` for detailed issue tracking and next steps.
+
+---
+
 ## Environment and tooling
 
 - Use **uv** for all Python dependency and command execution.
   - ✅ `uv sync`
-  - ✅ `uv run python -m scripts.demo --help`
+  - ✅ `uv run python scripts/gui_client.py`
 - Do **not** use `pip install`, `conda`, or ad-hoc virtualenvs.
+- **GUI Client Only**: All CLI demos have been removed. Use `scripts/gui_client.py` for testing.
 
 ## Project intent
 
@@ -47,7 +93,7 @@ Streaming text arrives (character/token/small chunk)
             ▼                       │
    ┌───────────────────────────┐    │
    │   Stage 1: Logit Router   │    │
-   │   (Qwen3-1.7B)            │    │
+   │   (MLX: Qwen3-1.7B-8bit)  │    │
    │   Per-token classification│    │
    │   P(RISK) from softmax    │    │
    │   ~10-20ms                │    │
@@ -80,7 +126,7 @@ Streaming text arrives (character/token/small chunk)
             ▼                       ▼
    ┌─────────────────────────────────┐
    │     Stage 2: Entity Redactor    │
-   │     (Qwen3-7B or similar)     │
+   │     (MLX: Qwen3-1.7B-8bit)      │
    │ Input: context + buffer+overlap │
    │ Output: PASS | MASK "entity" t  │
    │ ~50-100ms                       │
@@ -98,7 +144,7 @@ Streaming text arrives (character/token/small chunk)
 ### Key behaviors
 
 1. **Per-token Stage 1**: Runs on every new token/chunk (catches partial entities like "702...")
-2. **Stream break detection**: Timeout-based (default 500ms) determines when to mask and emit
+2. **Stream break detection**: Timeout-based (default 3000ms / 3s) determines when to mask and emit
 3. **Three-condition masking**: Mask if ANY of:
    - `any_risk_in_buffer == True` (any token had P(RISK) ≥ 0.7)
    - `ema_risk >= T_high` (EMA crossed escalation threshold)
@@ -138,7 +184,7 @@ To prevent leaking raw PII:
 - Maintain a **holdback buffer** of raw streamed text.
 - Do not emit raw text immediately.
 - Run per-token risk routing on buffered text.
-- At **stream breaks** (timeout-based, default 500ms), decide whether to mask.
+- At **stream breaks** (timeout-based, default 3000ms / 3s), decide whether to mask.
 - Emit only the **redacted** (or approved) version.
 - Prefer **irreversible decisions**: once emitted, do not "unmask" previously displayed content.
 
@@ -146,20 +192,24 @@ If a UI supports editing previously emitted text, unmasking is still discouraged
 
 ### Stream break detection (NOT chunking)
 - **Per-token processing**: Stage 1 runs on every new token/chunk as it arrives
-- **Stream break**: Detected when `time_since_last_token >= timeout` (default 500ms)
-- **Overlap tail**: Last 64 chars retained for cross-utterance entity detection
+- **Stream break**: Detected when `time_since_last_token >= timeout` (default 3000ms / 3s)
+- **Overlap tail**: Last 128 chars retained for cross-utterance entity detection
 - **Use case**: Mimics VAD (Voice Activity Detection) breaks in speech-to-text pipelines
 
 ## Two-stage cascade (CC++ aligned)
 
 ### Stage 1: cheap high-recall router (runs on all traffic)
 Purpose: decide whether we need expensive span redaction.
-- Can be a small LLM (e.g., Qwen3-1.7B) or rules + tiny model.
+- **Current**: MLX backend with Qwen/Qwen3-1.7B-MLX-8bit (8-bit quantized)
+- **Output**: Calibrated P(RISK) from softmax over SAFE/FAIL token logits
+- **Speed**: ~10-20ms per token (5-6x faster than text generation)
 - Output should be minimal and fast.
 
 ### Stage 2: accurate span redactor (routed traffic)
 Purpose: produce exact masks for the holdback window.
-- Use Qwen3-7B (or similar) fine-tuned for **span outputs**.
+- **Current**: MLX backend with Qwen/Qwen3-1.7B-MLX-8bit (same model as Stage 1)
+- **Future**: Use larger model (Qwen3-7B or similar) fine-tuned for **span outputs**
+- **Output**: Entity text format (NOT character offsets)
 - Stage 2 is invoked only when Stage 1 indicates risk OR when fast heuristics see strong indicators (e.g., regex hits).
 
 ## Fast heuristics (always-on, pre-Stage-1)
@@ -193,18 +243,31 @@ Regex-based detectors run on **all traffic** before Stage 1, providing:
 
 **Implementation**: Logit-based classification (not text generation).
 
-We extract P(RISK) from a single forward pass by taking softmax over SAFE/RISK token logits.
+We extract P(FAIL) from a single forward pass by taking softmax over SAFE/FAIL token logits.
 This is 5-6x faster than autoregressive token generation.
 
+**Current MLX Implementation**:
 ```python
-# Single forward pass
-logits = model(input_ids).logits[:, -1, :]
-safe_id, risk_id = tokenizer.encode("SAFE")[0], tokenizer.encode("RISK")[0]
-probs = softmax([logits[safe_id], logits[risk_id]])
-risk_score = probs[1]  # P(RISK)
+# Single forward pass with MLX
+logits = model(input_ids)[0, -1, :]  # Shape: [vocab_size]
+
+# Token IDs (Qwen3 tokenizer):
+# SAFE: 83788
+# FAIL: 36973
+safe_id, fail_id = 83788, 36973
+
+# Extract specific logits
+safe_logit = float(logits[safe_id])
+fail_logit = float(logits[fail_id])
+
+# Apply softmax
+probs = softmax([safe_logit, fail_logit])
+risk_score = probs[1]  # P(FAIL)
 ```
 
 The score is a calibrated probability (0.0-1.0).
+
+**Note**: Changed from SAFE/RISK to SAFE/FAIL because "RISK" tokenizes to multiple tokens ["R", "ISK"] in Qwen3, while "FAIL" is a single token.
 
 ### Stage 2 output (span redactor)
 
@@ -289,32 +352,55 @@ Training data structure:
 - Apply augmentations that create reconstruction/obfuscation-like splits across chunks
 - Target: high recall on entity extraction with acceptable false positives
 
-## Repo structure (expected)
+## Repo structure (current)
 
 - `constitutions/`
   - `pii_sensitive.md` (definitions + boundary cases + allowed examples)
   - `harmless.md` (explicit allowed patterns; e.g., fake placeholders, redaction examples)
-- `src/`
-  - `generate_data/` (synthetic + span-label generation)
-  - `augment/` (obfuscation, split/reconstruction, paraphrase, translation)
-  - `train/` (stage1 router, stage2 span redactor)
-  - `infer/` (streaming guard + base API client)
-  - `eval/` (FPR, recall, streaming leakage metrics)
+- `src/ccpp/`
+  - `infer/` - Inference pipeline (guard, stage1_router, stage2_redactor, heuristics)
+  - `llm/` - LLM backend harness (MLX, Ollama, Anthropic, OpenAI)
+  - `gui/` - GUI client components (state, components, app)
+  - `types.py` - Core data types
+  - `config.py` - Configuration system
 - `scripts/`
-  - `generate_data.py` (ccpp-generate)
-  - `augment.py` (ccpp-augment)
-  - `train.py` (ccpp-train)
-  - `eval.py` (ccpp-eval)
-  - `demo.py` (ccpp-demo)
+  - `gui_client.py` - Interactive GUI client (**ONLY script available**)
+- `configs/`
+  - `default.yaml` - Default configuration (MLX backend)
+- `tests/` - Test suite
+- `docs/` - Additional documentation
 
-## Development commands (expected)
+**Not yet implemented**:
+- `generate_data/` - Synthetic data generation
+- `augment/` - Data augmentation
+- `train/` - Model training
+- `eval/` - Evaluation metrics
 
-- `uv run ccpp-generate --constitution constitutions/pii_sensitive.md --output data/synthetic/`
-- `uv run ccpp-augment --input data/synthetic/ --output data/augmented/`
-- `uv run ccpp-train --config configs/stage1.yaml`
-- `uv run ccpp-train --config configs/stage2.yaml`
-- `uv run ccpp-eval --stage1 checkpoints/stage1/ --stage2 checkpoints/stage2/ --data data/eval/`
-- `uv run ccpp-demo --stage1 checkpoints/stage1/ --stage2 checkpoints/stage2/`
+## Development commands (current)
+
+**GUI Client** (primary interface):
+```bash
+# Launch interactive GUI
+uv run python scripts/gui_client.py
+
+# GUI available at http://127.0.0.1:7860
+# Logs at /tmp/gui_debug.log
+```
+
+**Testing**:
+```bash
+# Run unit tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=src/ccpp
+```
+
+**Future commands** (not yet implemented):
+- `uv run ccpp-generate` - Generate synthetic training data
+- `uv run ccpp-augment` - Augment training data
+- `uv run ccpp-train` - Train Stage 1/2 models
+- `uv run ccpp-eval` - Evaluate pipeline
 
 ## Non-goals
 - No probe-based methods (requires white-box).

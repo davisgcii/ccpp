@@ -259,6 +259,10 @@ def get_stage1_config(config: Config) -> Dict[str, Any]:
     if hasattr(config.stage1, "system_prompt"):
         result["system_prompt"] = config.stage1.system_prompt
 
+    # New: Add prompt_template if present
+    if hasattr(config.stage1, "prompt_template"):
+        result["prompt_template"] = config.stage1.prompt_template
+
     if hasattr(config.stage1, "logit_extraction"):
         result["logit_extraction"] = config.stage1.logit_extraction.to_dict() if isinstance(config.stage1.logit_extraction, Config) else config.stage1.logit_extraction
     elif hasattr(config.stage1, "token_a") and hasattr(config.stage1, "token_b"):
@@ -294,6 +298,10 @@ def get_stage2_config(config: Config) -> Dict[str, Any]:
 
     if hasattr(config.stage2, "system_prompt"):
         result["system_prompt"] = config.stage2.system_prompt
+
+    # New: Add prompt_template if present
+    if hasattr(config.stage2, "prompt_template"):
+        result["prompt_template"] = config.stage2.prompt_template
 
     return result
 

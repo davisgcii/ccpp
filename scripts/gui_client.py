@@ -56,12 +56,22 @@ def main():
 
     args = parser.parse_args()
 
+    # Clear log file on startup
+    import os
+    log_file = "/tmp/gui_debug.log"
+    if os.path.exists(log_file):
+        os.remove(log_file)
+        print(f"✓ Cleared old logs: {log_file}")
+
     # Create state
     print("=" * 60)
     print("PII-Masked Chat GUI Client")
     print("=" * 60)
     print(f"Stream break timeout: {args.timeout}s")
     print(f"Configuration: {args.env}")
+    print(f"Logs: {log_file}")
+    print()
+    print("View logs with: tail -f /tmp/gui_debug.log")
     print()
     print("Initializing components...")
 

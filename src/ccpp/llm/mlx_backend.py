@@ -183,7 +183,23 @@ class MLXBackend(LLMBackend):
             token_a_id = self._get_token_id(config.token_a)
             token_b_id = self._get_token_id(config.token_b)
 
-            logger.debug(f"[MLX] Token IDs: {config.token_a}={token_a_id}, {config.token_b}={token_b_id}")
+            # Detailed vocab debugging
+            logger.info(f"[MLX LOGIT EXTRACTION]")
+            logger.info(f"  Token A: '{config.token_a}' -> ID {token_a_id}")
+            logger.info(f"  Token B: '{config.token_b}' -> ID {token_b_id}")
+
+            # Decode token IDs to verify
+            decoded_a = self.tokenizer.decode([token_a_id])
+            decoded_b = self.tokenizer.decode([token_b_id])
+            logger.info(f"  Decoded A: '{decoded_a}'")
+            logger.info(f"  Decoded B: '{decoded_b}'")
+
+            # Show full tokenization for debug
+            full_tokens_a = self.tokenizer.encode(config.token_a, add_special_tokens=False)
+            full_tokens_b = self.tokenizer.encode(config.token_b, add_special_tokens=False)
+            logger.info(f"  Full tokenization A: {config.token_a} -> {full_tokens_a}")
+            logger.info(f"  Full tokenization B: {config.token_b} -> {full_tokens_b}")
+
         except ValueError as e:
             logger.error(f"[MLX] Token not found: {e}")
             # Fallback to safe default
@@ -193,7 +209,7 @@ class MLXBackend(LLMBackend):
         logit_a = float(last_logits[token_a_id])
         logit_b = float(last_logits[token_b_id])
 
-        logger.debug(f"[MLX] Raw logits: {config.token_a}={logit_a:.3f}, {config.token_b}={logit_b:.3f}")
+        logger.info(f"  Raw logits: {config.token_a}={logit_a:.3f}, {config.token_b}={logit_b:.3f}")
 
         # Apply softmax to get calibrated probabilities
         # softmax([a, b]) = [exp(a), exp(b)] / (exp(a) + exp(b))
@@ -204,7 +220,8 @@ class MLXBackend(LLMBackend):
         prob_a = exp_a / total
         prob_b = exp_b / total
 
-        logger.debug(f"[MLX] Calibrated probs: P({config.token_a})={prob_a:.3f}, P({config.token_b})={prob_b:.3f}")
+        logger.info(f"  Softmax probs: P({config.token_a})={prob_a:.3f}, P({config.token_b})={prob_b:.3f}")
+        logger.info(f"  Final: P({config.token_b})={prob_b:.3f} (RISK score)")
 
         return (prob_a, prob_b)
 

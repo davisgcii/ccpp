@@ -4,57 +4,96 @@
 
 This TODO implements a CC++-style **exchange classifier cascade** for **streaming detection + masking** of PII/sensitive info when guarding a **black-box hosted LLM**.
 
-## CRITICAL ISSUES (Current GUI Bugs)
+## CRITICAL ISSUES (Current Pipeline Bugs)
 
-### Issue #1: GUI Processing Hangs After Metadata Building
-**STATUS**: 🔴 BLOCKING - UI never updates despite successful backend processing
+### Issue #1: Stage 1 Always Returns FAIL=1.0
+**STATUS**: 🔴 ACTIVE BUG - Model systematically biased toward FAIL
 
 **Symptoms**:
-- User types text, pauses 3s
-- Stream break triggers correctly
-- Stage 2 extracts entities successfully
-- Logs stop at "FLOW: Building metadata" (app.py:303)
-- Never reaches "FLOW: Added user message" (app.py:336)
-- UI never shows masked text or LLM response
+- Every classification returns P(FAIL) ≈ 1.0, even for benign text like "c" or "can you help"
+- Raw logits show FAIL consistently 10-23 points higher than SAFE
+- Examples from logs:
+  - `SAFE=32.750, FAIL=43.500` (gap: 10.75) for "c"
+  - `SAFE=22.500, FAIL=46.000` (gap: 23.5) for email text
 
-**Investigation**:
-```python
-# app.py:314-335 - Silent failure zone
-buffer_metadata = BufferMetadata(
-    original_text=original_text,
-    masked_text=masked_text,
-    char_data=state.current_char_data.copy(),  # Possible issue?
-    ...
-)
-state.add_to_conversation({
-    "role": "user",
-    "content": masked_text,
-    "metadata": buffer_metadata.to_dict(),  # Crashes here?
-})
+**Evidence**:
 ```
-
-**Evidence from logs** (2026-01-10 20:09:23):
-```
-[INFO] [check_and_process_buffer] Masked 'george@gmail.com' -> '[PII/DIRECT]'
-[INFO] [check_and_process_buffer] FLOW: Post-masking - original_len=88, masked_len=84, was_masked=True
-[DEBUG] [check_and_process_buffer] FLOW: Marked buffer as processed
-[DEBUG] [check_and_process_buffer] FLOW: Building metadata - was_masked=True, char_data_len=15, risk_history_len=15
-# LOGS STOP HERE - never reaches line 336
+2026-01-10 21:48:46,032 [INFO]   Raw logits: SAFE=32.750, FAIL=43.500
+2026-01-10 21:48:46,032 [INFO]   Softmax probs: P(SAFE)=0.000, P(FAIL)=1.000
 ```
 
 **Possible causes**:
-1. `BufferMetadata()` constructor failing silently
-2. `buffer_metadata.to_dict()` raising unhandled exception
-3. `state.current_char_data` contains incompatible data (only 15 entries for 88 chars)
-4. Gradio thread being killed without logging
-5. Silent exception in try/except block swallowing error
+1. Token IDs are correct (SAFE=83788, FAIL=36973), both decode correctly
+2. Model may be undertrained or prompt is causing bias
+3. Need to verify prompt is actually being sent to model correctly
+4. May need to test with different prompt or model
 
 **Next steps**:
-- [ ] Add try/except with explicit logging around BufferMetadata creation
-- [ ] Add try/except with explicit logging around to_dict() call
-- [ ] Validate char_data structure before creating BufferMetadata
-- [ ] Test BufferMetadata.to_dict() in isolation with actual data
-- [ ] Check if Gradio has output size limits causing silent failures
+- [ ] Create diagnostic script to test model in isolation
+- [ ] Try simpler prompt with just "Classify: SAFE or FAIL"
+- [ ] Test with known-good examples from training data
+- [ ] Consider if model needs different temperature/sampling
+
+---
+
+### Issue #2: Stage 2 Returns "PASS" Instead of Masking
+**STATUS**: 🔴 ACTIVE BUG - Stage 2 not extracting entities
+
+**Symptoms**:
+- Heuristics correctly detect email: `george@sierra.ai`
+- Stage 2 is called with correct window text
+- Stage 2 returns `'PASS'` instead of `MASK "george@sierra.ai" pii/direct`
+- No entities extracted despite obvious PII
+
+**Evidence**:
+```
+2026-01-10 21:48:57,735 [DEBUG] [check_and_process_buffer] Heuristic matches: 1 found
+2026-01-10 21:48:57,735 [INFO] [check_and_process_buffer] Strong heuristic match: ['email']
+2026-01-10 21:48:57,736 [DEBUG] [Stage2] window_text: can you help me find my order? I think it's under the email george@sierra.ai
+2026-01-10 21:48:58,830 [INFO] [Stage2] Generated output: 'PASS'
+2026-01-10 21:48:58,830 [INFO] [Stage2] Parsed 0 entities
+```
+
+**Possible causes**:
+1. Stage 2 prompt may not be clear enough
+2. Model may be refusing to extract entities
+3. May be same issue as Stage 1 (model systematically biased)
+4. Need to verify mock mode works vs real mode
+
+**Next steps**:
+- [ ] Test Stage 2 in mock mode (should use regex)
+- [ ] Check if Stage 2 is using real mode or mock mode
+- [ ] Verify prompt template is being used correctly
+- [ ] Test with simpler extraction examples
+
+---
+
+### Issue #3: GUI Processing Hangs After Metadata Building
+**STATUS**: ✅ FIXED (2026-01-10) - Was a deadlock in lock acquisition
+
+**Root Cause**:
+The issue was a **deadlock** caused by nested lock acquisition with a non-reentrant lock:
+
+1. `state.lock` was `threading.Lock()` (non-reentrant)
+2. `check_and_process_buffer()` (app.py:242) acquired the lock
+3. Inside that lock, it called `state.add_to_conversation()` (app.py:335)
+4. `add_to_conversation()` (state.py:123) tried to acquire the SAME lock
+5. **Deadlock**: Thread blocked forever waiting for itself to release the lock
+
+**Fix**:
+Changed `threading.Lock()` to `threading.RLock()` (reentrant lock) in `state.py`:
+```python
+# Old (deadlock)
+self.lock = Lock()
+
+# New (allows nested acquisition)
+self.lock = RLock()
+```
+
+**Why logs stopped at "Building metadata"**:
+The BufferMetadata creation (lines 314-324) succeeded, but the next line that called
+`state.add_to_conversation()` caused the deadlock. Since deadlocks don't raise exceptions,
+the try/except block never caught anything, and the thread hung indefinitely.
 
 ---
 
@@ -287,13 +326,11 @@ char 87: 'com'    → P(RISK)=1.000 (completing email domain)
 
 ## IMMEDIATE PRIORITIES (Before continuing to Phase 3)
 
-### 1. Fix GUI Metadata Crash 🔴 CRITICAL
-- [ ] Add explicit try/except around BufferMetadata creation (app.py:314)
-- [ ] Add explicit try/except around to_dict() call (app.py:333)
-- [ ] Log exact exception and traceback
-- [ ] Test BufferMetadata serialization in isolation
-- [ ] Fix or work around the crash
-- [ ] Verify UI updates after fix
+### 1. Fix GUI Deadlock ✅ COMPLETE
+- [x] Root cause: `threading.Lock()` → deadlock when `check_and_process_buffer` calls `add_to_conversation`
+- [x] Fix: Changed to `threading.RLock()` (reentrant lock) in state.py:101-103
+- [x] All 119 tests pass after fix
+- [ ] Verify UI updates after fix (manual testing needed)
 
 ### 2. Fix or Accept Gradio Event Batching 🟡 IMPORTANT
 - [ ] **Option A**: Track previous buffer length, process only new characters
@@ -502,7 +539,7 @@ Each record should include:
 ---
 
 ## Current Status (update as you go)
-**Last Updated**: 2026-01-10 23:00
+**Last Updated**: 2026-01-10 21:50
 
 ### Confirmed Architectural Decisions
 
@@ -565,23 +602,34 @@ Each record should include:
 
 ### Active Bugs 🔴
 
-**GUI Metadata Crash**:
-- Logs stop at "Building metadata" (app.py:303)
-- Never reaches "Added user message" (app.py:336)
-- Silent failure prevents UI updates
-- Backend processing completes successfully
-- **Impact**: GUI completely non-functional despite working backend
+**Stage 1 Always Returns FAIL=1.0** 🔴 CRITICAL:
+- Every classification returns P(FAIL) ≈ 1.0
+- Raw logits: FAIL consistently 10-23 points higher than SAFE
+- Affects all text, even benign inputs like "c" or "can you help"
+- **Impact**: System unusable - classifies everything as risky
 
-**Gradio Event Batching**:
+**Stage 2 Returns PASS Instead of Masking** 🔴 CRITICAL:
+- Heuristics detect PII correctly
+- Stage 2 called with correct window text
+- Stage 2 returns 'PASS' instead of extracting entities
+- **Impact**: No masking occurs even when PII is detected
+
+**~~GUI Metadata Crash~~ ✅ FIXED**:
+- Root cause was deadlock from nested lock acquisition (Lock vs RLock)
+- Fixed by changing `threading.Lock()` to `threading.RLock()` in state.py
+
+**Gradio Event Batching** 🟡 MINOR:
 - User types 88 chars, only 15 datapoints show in chart
 - Gradio batches rapid keystrokes into single events
 - on_user_type() adds one entry per event, not per character
 - **Impact**: Incomplete visualization, but backend unaffected
 
 ### Next Steps (Prioritized)
-1. **Fix GUI metadata crash** - Critical blocker for any GUI use
-2. **Fix or document Gradio batching** - Decide on architectural approach
-3. **Model enum restructure** - Clarify which models support logit extraction
-4. **Integration tests** - Validate MLX backend end-to-end
-5. **Documentation updates** - Reflect current status and known issues
-6. **Phase 3**: Begin synthetic data generation once GUI stabilized
+1. **Fix Stage 1 FAIL=1.0 bug** 🔴 - Diagnose why model always predicts FAIL
+2. **Fix Stage 2 PASS bug** 🔴 - Determine why entities aren't being extracted
+3. **Documentation updates** - Reflect current status and known critical issues
+4. **Cleanup unnecessary files** - Remove old plans, backups, etc.
+5. **Model enum restructure** - Clarify which models support logit extraction
+6. **Integration tests** - Validate MLX backend end-to-end
+7. **Fix or document Gradio batching** - Decide on architectural approach
+8. **Phase 3**: Begin synthetic data generation once pipeline validated

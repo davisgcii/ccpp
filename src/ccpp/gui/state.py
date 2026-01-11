@@ -2,7 +2,7 @@
 
 import os
 import time
-from threading import Lock
+from threading import RLock
 from typing import Optional
 from dotenv import load_dotenv
 from anthropic import Anthropic
@@ -98,7 +98,9 @@ class PIIClientState:
         self.max_history_exchanges = 30
 
         # Thread safety for concurrent Gradio events
-        self.lock = Lock()
+        # Use RLock (reentrant) to allow nested lock acquisition
+        # (e.g., check_and_process_buffer -> add_to_conversation)
+        self.lock = RLock()
 
     def reset(self):
         """Reset state for new conversation."""
