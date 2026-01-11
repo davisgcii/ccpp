@@ -1,4 +1,4 @@
-"""Main Gradio application for PII-masked chat GUI."""
+"""Main Gradio application for PII-masked chat GUI (terminal-style)."""
 
 import time
 import gradio as gr
@@ -6,6 +6,59 @@ import gradio as gr
 from ccpp.gui.state import PIIClientState
 from ccpp.gui.components import create_risk_html, create_risk_chart, format_status
 from ccpp.types import ApprovedModel
+
+
+# Terminal-style CSS
+TERMINAL_CSS = """
+/* Dark terminal theme */
+body {
+    background-color: #000000 !important;
+}
+
+.gradio-container {
+    background-color: #0a0a0a !important;
+    font-family: 'Courier New', monospace !important;
+}
+
+/* Terminal-style textboxes */
+.terminal-input textarea, .terminal-output textarea {
+    font-family: 'Courier New', monospace !important;
+    background-color: #0a0a0a !important;
+    color: #00ff00 !important;
+    border: 1px solid #333 !important;
+    border-radius: 4px !important;
+}
+
+.terminal-input textarea:focus, .terminal-output textarea:focus {
+    border-color: #00ff00 !important;
+    box-shadow: 0 0 5px #00ff00 !important;
+}
+
+/* Labels */
+label {
+    color: #00ff00 !important;
+    font-family: 'Courier New', monospace !important;
+    font-weight: bold !important;
+}
+
+/* Buttons */
+button {
+    background-color: #1a1a1a !important;
+    color: #00ff00 !important;
+    border: 1px solid #333 !important;
+    font-family: 'Courier New', monospace !important;
+}
+
+button:hover {
+    background-color: #2a2a2a !important;
+    border-color: #00ff00 !important;
+}
+
+/* Markdown */
+.markdown {
+    color: #00ff00 !important;
+}
+"""
 
 
 def on_user_type(text: str, state: PIIClientState):
@@ -185,137 +238,192 @@ def clear_conversation(state: PIIClientState):
 
 
 def create_gui(state: PIIClientState) -> gr.Blocks:
-    """Create Gradio interface for PII-masked chat.
+    """Create Gradio interface for PII-masked chat (terminal-style).
 
     Args:
         state: Application state instance
 
     Returns:
-        Gradio Blocks interface
+        Gradio Blocks interface with terminal aesthetics
     """
+    # Create dark theme
+    theme = gr.themes.Base(
+        primary_hue="green",
+        secondary_hue="green",
+        neutral_hue="slate",
+    ).set(
+        body_background_fill="#000000",
+        body_background_fill_dark="#000000",
+        panel_background_fill="#0a0a0a",
+        panel_background_fill_dark="#0a0a0a",
+    )
+
     with gr.Blocks(
-        title="PII-Masked Chat",
-        theme=gr.themes.Soft(),
-        css="""
-        .risk-high { background-color: #ffcccc; border-bottom: 2px solid red; }
-        .status-box { font-weight: bold; }
-        """,
+        title="[PII-GUARD] Terminal Interface",
+        theme=theme,
+        css=TERMINAL_CSS,
     ) as demo:
-        # Header
-        gr.Markdown(
-            """
-            # 🔒 PII-Masked Chat Client
-
-            Real-time PII detection and masking with live risk visualization.
-
-            **How it works:**
-            1. 💬 Type your message - risk metrics update in real-time
-            2. ⏸️ Pause for 3 seconds - system detects stream break
-            3. 🔒 Message is automatically masked and sent to Claude
-            4. 🤖 Response streams back
-            5. ⚠️ Type during response to interrupt (only displayed portion saved)
-            """
-        )
+        # Terminal-style header
+        gr.HTML('''
+        <div style="
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background-color: #0a0a0a;
+            border: 2px solid #00ff00;
+            border-radius: 4px;
+            margin-bottom: 20px;">
+            <h1 style="color: #00ff00; margin: 0; font-size: 24px;">
+                ┌─ PII-GUARD TERMINAL ──────────────────────────────────────┐
+            </h1>
+            <pre style="color: #00aaff; margin: 10px 0; font-size: 12px;">
+├─ Real-time PII detection and masking
+├─ Live risk visualization (ASCII charts)
+├─ Stream break detection (3s pause)
+├─ Automatic masking before LLM submission
+└─ Interrupt protection (type to cancel response)
+            </pre>
+            <p style="color: #ffaa00; margin: 5px 0; font-size: 12px;">
+                <span style="color: #ff0000;">⚠</span> CLASSIFIED - Authorized Personnel Only
+            </p>
+        </div>
+        ''')
 
         with gr.Row():
             # Left column: Input and outputs
             with gr.Column(scale=2):
                 # User input area
                 user_input = gr.Textbox(
-                    label="💬 Type your message",
-                    placeholder="Start typing... (e.g., 'My email is john@example.com')",
+                    label="▸ INPUT STREAM",
+                    placeholder="[WAITING FOR INPUT] Type PII to test detection...",
                     lines=3,
                     interactive=True,
-                    elem_classes=["user-input-box"],
+                    elem_classes=["terminal-input"],
                 )
 
                 # Risk indicators
                 risk_indicators = gr.HTML(
-                    label="⚠️ Risk Indicators",
+                    label="▸ RISK INDICATORS",
                     value=create_risk_html("", []),
                 )
 
                 # Status bar
-                status = gr.Textbox(
-                    label="📊 Status",
+                status = gr.HTML(
+                    label="▸ SYSTEM STATUS",
                     value=format_status(),
-                    interactive=False,
-                    elem_classes=["status-box"],
                 )
 
                 # Original vs Masked comparison
-                gr.Markdown("### 📝 Original vs 🔒 Masked Comparison")
+                gr.HTML('''<div style="
+                    color: #00ff00;
+                    font-family: 'Courier New', monospace;
+                    font-size: 14px;
+                    padding: 10px 0;
+                    border-top: 1px solid #333;
+                    margin-top: 10px;">
+                    ┌─ COMPARISON: ORIGINAL vs MASKED ─────────────────────┐
+                </div>''')
                 with gr.Row():
                     original_display = gr.Textbox(
-                        label="📝 Original Text",
+                        label="▸ ORIGINAL",
                         interactive=False,
                         lines=3,
-                        placeholder="Original text will appear here after stream break...",
+                        placeholder="[EMPTY] Waiting for stream break...",
+                        elem_classes=["terminal-output"],
                     )
                     masked_display = gr.Textbox(
-                        label="🔒 Masked Text (sent to LLM)",
+                        label="▸ MASKED (TO LLM)",
                         interactive=False,
                         lines=3,
-                        placeholder="Masked text will appear here after stream break...",
+                        placeholder="[EMPTY] Waiting for stream break...",
+                        elem_classes=["terminal-output"],
                     )
 
                 # Assistant response
                 assistant_display = gr.Textbox(
-                    label="🤖 Assistant Response",
+                    label="▸ LLM RESPONSE",
                     interactive=False,
                     lines=6,
-                    placeholder="Assistant response will appear here...",
+                    placeholder="[STANDBY] Waiting for LLM response...",
+                    elem_classes=["terminal-output"],
                 )
 
                 # Control buttons
                 with gr.Row():
-                    clear_btn = gr.Button("🗑️ Clear Conversation", variant="secondary")
+                    clear_btn = gr.Button("[ CLEAR SESSION ]", variant="secondary")
 
             # Right column: Risk chart and legend
             with gr.Column(scale=1):
-                # Risk chart
-                risk_chart = gr.Plot(
-                    label="📈 Real-Time Risk Metrics",
+                # ASCII Risk chart
+                risk_chart = gr.HTML(
+                    label="▸ RISK VISUALIZATION",
                     value=create_risk_chart([]),
                 )
 
-                # Legend and explanation
-                gr.Markdown(
-                    """
-                    ### 📊 Chart Legend
+                # Terminal-style legend
+                gr.HTML('''
+                <div style="
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    padding: 12px;
+                    color: #00ff00;
+                    background-color: #0a0a0a;
+                    border: 1px solid #333;
+                    border-radius: 4px;
+                    margin-top: 10px;">
+                    <div style="color: #ffaa00; font-weight: bold; margin-bottom: 8px;">
+                    ┌─ LEGEND ──────────────────────────┐
+                    </div>
+                    <div style="color: #00aaff;">● P(RISK)</div>
+                    <div style="margin-left: 10px; color: #666;">Per-character risk score</div>
+                    <br>
+                    <div><span style="color: #00ff00;">█</span><span style="color: #ff0000;">█</span> EMA (smoothed)</div>
+                    <div style="margin-left: 10px; color: #666;">Green: safe / Red: escalated</div>
+                    <br>
+                    <div style="color: #ff9800;">┈ T_high (0.6)</div>
+                    <div style="margin-left: 10px; color: #666;">Escalation threshold</div>
+                    <br>
+                    <div style="color: #666;">· T_low (0.3)</div>
+                    <div style="margin-left: 10px; color: #666;">De-escalation threshold</div>
+                    <div style="color: #ffaa00; font-weight: bold; margin-top: 8px;">
+                    └───────────────────────────────────┘
+                    </div>
+                </div>
+                ''')
 
-                    **Lines:**
-                    - 🔵 **Blue**: P(RISK) per character
-                      Raw risk score for each character
-                    - 🟢/🔴 **Green/Red**: EMA (smoothed)
-                      Exponential moving average of risk
-                      Turns red when crossing threshold
-
-                    **Thresholds:**
-                    - 🟠 **Orange dashed**: T_high (0.6)
-                      Escalation threshold
-                    - ⚪ **Gray dotted**: T_low (0.3)
-                      De-escalation threshold
-
-                    **Behavior:**
-                    - When EMA ≥ T_high → Escalated (red)
-                    - When EMA ≤ T_low → De-escalated (green)
-                    - Red highlights = P(RISK) ≥ 0.7
-                    """
-                )
-
-                # Usage tips
-                gr.Markdown(
-                    """
-                    ### 💡 Tips
-
-                    - Try typing PII like emails, phone numbers, API keys
-                    - Watch risk metrics update in real-time
-                    - Pause 3 seconds to trigger processing
-                    - Start typing during response to interrupt
-                    - Check original vs masked to see what changed
-                    """
-                )
+                # Terminal-style usage tips
+                gr.HTML('''
+                <div style="
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    padding: 12px;
+                    color: #00ff00;
+                    background-color: #0a0a0a;
+                    border: 1px solid #333;
+                    border-radius: 4px;
+                    margin-top: 10px;">
+                    <div style="color: #ffaa00; font-weight: bold; margin-bottom: 8px;">
+                    ┌─ USAGE TIPS ──────────────────────┐
+                    </div>
+                    <div style="color: #00aaff;">▸ Test PII patterns:</div>
+                    <div style="margin-left: 10px; color: #666;">
+                      - Emails: user@example.com<br>
+                      - Phones: 555-123-4567<br>
+                      - API keys: sk_live_abc123
+                    </div>
+                    <br>
+                    <div style="color: #00aaff;">▸ Watch real-time updates</div>
+                    <div style="margin-left: 10px; color: #666;">Risk chart updates per character</div>
+                    <br>
+                    <div style="color: #00aaff;">▸ Stream break trigger</div>
+                    <div style="margin-left: 10px; color: #666;">Pause 3s to process buffer</div>
+                    <br>
+                    <div style="color: #00aaff;">▸ Interrupt protection</div>
+                    <div style="margin-left: 10px; color: #666;">Type during response to cancel</div>
+                    <div style="color: #ffaa00; font-weight: bold; margin-top: 8px;">
+                    └───────────────────────────────────┘
+                    </div>
+                </div>
+                ''')
 
         # Event handlers
 

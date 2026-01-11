@@ -1,14 +1,13 @@
-"""UI components for GUI client (charts, HTML formatting, etc.)."""
+"""UI components for GUI client (terminal-style charts, HTML formatting, etc.)."""
 
-import plotly.graph_objects as go
-import pandas as pd
+import math
+from typing import List, Tuple
 
 
 def create_risk_html(text: str, risk_history: list, threshold: float = 0.7) -> str:
-    """Create HTML with risk indicators under text.
+    """Create terminal-style HTML with risk indicators under text.
 
-    Highlights characters that triggered high risk scores with red background
-    and underline.
+    Highlights characters that triggered high risk scores with terminal colors.
 
     Args:
         text: User input text
@@ -16,17 +15,31 @@ def create_risk_html(text: str, risk_history: list, threshold: float = 0.7) -> s
         threshold: Risk threshold for highlighting (default: 0.7)
 
     Returns:
-        HTML string with risk indicators
-
-    Example:
-        >>> create_risk_html("test@email.com", [{'char_idx': 5, 'p_risk': 0.9, ...}])
-        '<div style="...">test<span style="background-color: #ffcccc;">@</span>...</div>'
+        Terminal-styled HTML string with risk indicators
     """
     if not text:
-        return '<div style="font-size: 16px; padding: 10px; color: #888;">Type to see risk indicators...</div>'
+        return '''<div style="
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 12px;
+            color: #00ff00;
+            background-color: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;">
+            <span style="color: #666;">▸ Type to see risk indicators...</span>
+        </div>'''
 
     if not risk_history:
-        return f'<div style="font-size: 16px; padding: 10px;">{text}</div>'
+        return f'''<div style="
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 12px;
+            color: #00ff00;
+            background-color: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;">
+            {_escape_html(text)}
+        </div>'''
 
     # Find characters with high risk
     high_risk_chars = set()
@@ -34,157 +47,222 @@ def create_risk_html(text: str, risk_history: list, threshold: float = 0.7) -> s
         if record['p_risk'] >= threshold:
             high_risk_chars.add(record['char_idx'])
 
-    # Build HTML with highlighting
-    html_parts = [
-        '<div style="font-size: 16px; padding: 10px; line-height: 2.0; '
-        'font-family: monospace; background-color: #f9f9f9; border-radius: 4px;">'
-    ]
+    # Build terminal-style HTML with highlighting
+    html_parts = ['''<div style="
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        padding: 12px;
+        line-height: 1.8;
+        color: #00ff00;
+        background-color: #0a0a0a;
+        border: 1px solid #333;
+        border-radius: 4px;">''']
 
     for i, char in enumerate(text):
         if i in high_risk_chars:
-            # Highlight risky characters with red background and underline
+            # Highlight risky characters with red (terminal style)
             html_parts.append(
-                f'<span style="background-color: #ffcccc; '
-                f'border-bottom: 2px solid #cc0000; padding: 2px; '
-                f'font-weight: bold;">{char}</span>'
+                f'<span style="color: #ff0000; background-color: #330000; '
+                f'border-bottom: 2px solid #ff0000; padding: 1px; '
+                f'font-weight: bold;">{_escape_html(char)}</span>'
             )
         else:
-            # Escape HTML special characters
-            if char == '<':
-                html_parts.append('&lt;')
-            elif char == '>':
-                html_parts.append('&gt;')
-            elif char == '&':
-                html_parts.append('&amp;')
-            else:
-                html_parts.append(char)
+            html_parts.append(_escape_html(char))
 
     html_parts.append('</div>')
 
     return ''.join(html_parts)
 
 
+def _escape_html(text: str) -> str:
+    """Escape HTML special characters."""
+    return (text
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+        .replace(' ', '&nbsp;')
+        .replace('\n', '<br>')
+    )
+
+
 def create_risk_chart(
     risk_history: list,
     t_high: float = 0.6,
     t_low: float = 0.3,
-) -> go.Figure:
-    """Create Plotly chart showing P(RISK) and EMA over time.
+    width: int = 80,
+    height: int = 20,
+) -> str:
+    """Create terminal-style ASCII chart showing P(RISK) and EMA over time.
 
     Args:
         risk_history: List of dicts with keys: char_idx, p_risk, ema, any_risk
         t_high: High threshold for escalation (default: 0.6)
         t_low: Low threshold for de-escalation (default: 0.3)
+        width: Chart width in characters (default: 80)
+        height: Chart height in characters (default: 20)
 
     Returns:
-        Plotly figure object
+        HTML string containing terminal-style ASCII chart
 
     Example:
         >>> history = [{'char_idx': 0, 'p_risk': 0.5, 'ema': 0.4, 'any_risk': False}]
-        >>> fig = create_risk_chart(history)
+        >>> html = create_risk_chart(history)
     """
     # Create empty chart if no data
     if not risk_history:
-        fig = go.Figure()
-        fig.update_layout(
-            title="Risk Metrics (P(RISK) and EMA)",
-            xaxis_title="Character Index",
-            yaxis_title="Risk Score",
-            yaxis_range=[0, 1],
-            height=350,
-            template="plotly_white",
-        )
-        fig.add_annotation(
-            text="Start typing to see risk metrics...",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=14, color="gray"),
-        )
-        return fig
+        return '''<div style="
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 12px;
+            color: #00ff00;
+            background-color: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            white-space: pre;">
+┌─ RISK METRICS ─────────────────────────────────────────────────────┐
+│                                                                    │
+│                   <span style="color: #666;">Start typing to see metrics...</span>                   │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+</div>'''
 
-    # Convert to DataFrame for easy plotting
-    df = pd.DataFrame(risk_history)
+    # Determine current EMA color
+    current_ema = risk_history[-1]['ema']
+    ema_color = '#ff0000' if current_ema >= t_high else '#00ff00'
 
-    # Determine EMA line color (red if above threshold, green otherwise)
-    current_ema = df['ema'].iloc[-1] if len(df) > 0 else 0.0
-    ema_color = '#cc0000' if current_ema >= t_high else '#00cc00'
-
-    fig = go.Figure()
-
-    # P(RISK) line (per-character risk)
-    fig.add_trace(go.Scatter(
-        x=df['char_idx'],
-        y=df['p_risk'],
-        mode='lines',
-        name='P(RISK) per char',
-        line=dict(color='#4285f4', width=2),
-        hovertemplate='Char %{x}<br>P(RISK): %{y:.3f}<extra></extra>',
-    ))
-
-    # EMA line (smoothed risk)
-    fig.add_trace(go.Scatter(
-        x=df['char_idx'],
-        y=df['ema'],
-        mode='lines',
-        name='EMA (smoothed)',
-        line=dict(color=ema_color, width=3),
-        hovertemplate='Char %{x}<br>EMA: %{y:.3f}<extra></extra>',
-    ))
-
-    # High threshold line
-    fig.add_hline(
-        y=t_high,
-        line_dash="dash",
-        line_color="#ff9800",
-        line_width=2,
-        annotation_text=f"T_high = {t_high}",
-        annotation_position="right",
-        annotation=dict(font_size=12, font_color="#ff9800"),
+    # Build ASCII chart
+    chart_lines = _render_ascii_chart(
+        risk_history,
+        t_high,
+        t_low,
+        width,
+        height,
+        ema_color,
     )
 
-    # Low threshold line (optional, for reference)
-    fig.add_hline(
-        y=t_low,
-        line_dash="dot",
-        line_color="#999999",
-        line_width=1,
-        annotation_text=f"T_low = {t_low}",
-        annotation_position="right",
-        annotation=dict(font_size=10, font_color="#999999"),
-    )
+    # Wrap in terminal-style HTML
+    return f'''<div style="
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        padding: 12px;
+        color: #00ff00;
+        background-color: #0a0a0a;
+        border: 1px solid #333;
+        border-radius: 4px;
+        white-space: pre;
+        line-height: 1.2;">{''.join(chart_lines)}</div>'''
 
-    # Layout
-    fig.update_layout(
-        title={
-            'text': "Risk Metrics Over Time",
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 16, 'weight': 'bold'},
-        },
-        xaxis_title="Character Index",
-        yaxis_title="Risk Score",
-        yaxis_range=[0, 1.05],  # Slightly above 1 for better visibility
-        height=350,
-        showlegend=True,
-        legend=dict(
-            x=0.02,
-            y=0.98,
-            bgcolor="rgba(255,255,255,0.8)",
-            bordercolor="gray",
-            borderwidth=1,
-        ),
-        template="plotly_white",
-        hovermode='x unified',
-    )
 
-    # Add grid
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+def _render_ascii_chart(
+    risk_history: list,
+    t_high: float,
+    t_low: float,
+    width: int,
+    height: int,
+    ema_color: str,
+) -> List[str]:
+    """Render ASCII chart with P(RISK) and EMA lines.
 
-    return fig
+    Returns:
+        List of HTML-formatted lines
+    """
+    # Extract data
+    p_risks = [r['p_risk'] for r in risk_history]
+    emas = [r['ema'] for r in risk_history]
+    char_indices = [r['char_idx'] for r in risk_history]
+
+    # Create canvas
+    canvas = [[' ' for _ in range(width)] for _ in range(height)]
+
+    # Draw axes
+    for y in range(height):
+        canvas[y][0] = '│'
+
+    for x in range(width):
+        canvas[height - 1][x] = '─'
+
+    canvas[height - 1][0] = '└'
+
+    # Draw threshold lines
+    t_high_y = _value_to_y(t_high, height)
+    t_low_y = _value_to_y(t_low, height)
+
+    for x in range(1, width):
+        if t_high_y < height - 1:
+            canvas[t_high_y][x] = '┈'  # Dashed line for T_high
+        if t_low_y < height - 1:
+            canvas[t_low_y][x] = '·'  # Dotted line for T_low
+
+    # Normalize char indices to fit width
+    max_char = max(char_indices)
+    min_char = min(char_indices)
+    char_range = max(max_char - min_char, 1)
+
+    # Plot P(RISK) line (blue)
+    for i, (char_idx, p_risk) in enumerate(zip(char_indices, p_risks)):
+        x = _char_to_x(char_idx, min_char, char_range, width)
+        y = _value_to_y(p_risk, height)
+        if 0 < x < width and 0 <= y < height - 1:
+            canvas[y][x] = '●'  # P(RISK) marker
+
+    # Plot EMA line (green/red depending on threshold)
+    for i, (char_idx, ema) in enumerate(zip(char_indices, emas)):
+        x = _char_to_x(char_idx, min_char, char_range, width)
+        y = _value_to_y(ema, height)
+        if 0 < x < width and 0 <= y < height - 1:
+            canvas[y][x] = '█'  # EMA marker (solid block)
+
+    # Convert canvas to HTML lines with colors
+    lines = ['┌─ RISK METRICS ─────────────────────────────────────────────────────┐\n']
+
+    for y, row in enumerate(canvas):
+        line_parts = ['│']
+
+        for x, char in enumerate(row):
+            if char == '●':  # P(RISK) marker
+                line_parts.append(f'<span style="color: #00aaff;">●</span>')
+            elif char == '█':  # EMA marker
+                line_parts.append(f'<span style="color: {ema_color};">█</span>')
+            elif char == '┈':  # T_high line
+                line_parts.append(f'<span style="color: #ff9800;">┈</span>')
+            elif char == '·':  # T_low line
+                line_parts.append(f'<span style="color: #666;">·</span>')
+            elif char == '│' or char == '─' or char == '└':
+                line_parts.append(f'<span style="color: #444;">{char}</span>')
+            else:
+                line_parts.append(' ')
+
+        line_parts.append('<span style="color: #444;">│</span>\n')
+        lines.append(''.join(line_parts))
+
+    # Add legend
+    lines.append('└────────────────────────────────────────────────────────────────────┘\n')
+    lines.append(f'  <span style="color: #00aaff;">●</span> P(RISK)  ')
+    lines.append(f'<span style="color: {ema_color};">█</span> EMA  ')
+    lines.append(f'<span style="color: #ff9800;">┈</span> T_high={t_high:.2f}  ')
+    lines.append(f'<span style="color: #666;">·</span> T_low={t_low:.2f}\n')
+
+    # Add current values
+    current_p_risk = p_risks[-1]
+    current_ema = emas[-1]
+    lines.append(f'  Current: P(RISK)=<span style="color: #00aaff;">{current_p_risk:.3f}</span>  ')
+    lines.append(f'EMA=<span style="color: {ema_color};">{current_ema:.3f}</span>\n')
+
+    return lines
+
+
+def _value_to_y(value: float, height: int) -> int:
+    """Convert risk value (0-1) to y coordinate."""
+    # Invert because y=0 is top
+    y = int((1.0 - value) * (height - 2))
+    return max(0, min(height - 2, y))
+
+
+def _char_to_x(char_idx: int, min_char: int, char_range: int, width: int) -> int:
+    """Convert character index to x coordinate."""
+    normalized = (char_idx - min_char) / char_range
+    x = int(normalized * (width - 2)) + 1
+    return max(1, min(width - 1, x))
 
 
 def format_status(
@@ -193,7 +271,7 @@ def format_status(
     chars_masked: int = 0,
     error: str = "",
 ) -> str:
-    """Format status message for display.
+    """Format terminal-style status message for display.
 
     Args:
         is_processing: Whether currently processing
@@ -202,18 +280,47 @@ def format_status(
         error: Error message if any
 
     Returns:
-        Formatted status string
+        Terminal-styled HTML status string
     """
     if error:
-        return f"❌ Error: {error}"
+        return f'''<div style="
+            font-family: 'Courier New', monospace;
+            padding: 8px;
+            color: #ff0000;
+            background-color: #0a0a0a;
+            border: 1px solid #ff0000;
+            border-radius: 4px;">
+            <span style="color: #ff0000;">✗ ERROR:</span> {error}
+        </div>'''
 
     if is_processing:
-        return "⏳ Processing buffer and waiting for LLM response..."
+        return '''<div style="
+            font-family: 'Courier New', monospace;
+            padding: 8px;
+            color: #ffaa00;
+            background-color: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;">
+            <span style="color: #ffaa00;">⧗</span> Processing buffer and waiting for LLM response...
+        </div>'''
 
     if chars_processed > 0:
-        return (
-            f"✅ Processed! Original: {chars_processed} chars, "
-            f"Masked: {chars_masked} chars"
-        )
+        return f'''<div style="
+            font-family: 'Courier New', monospace;
+            padding: 8px;
+            color: #00ff00;
+            background-color: #0a0a0a;
+            border: 1px solid #00ff00;
+            border-radius: 4px;">
+            <span style="color: #00ff00;">✓</span> Processed! Original: {chars_processed} chars, Masked: {chars_masked} chars
+        </div>'''
 
-    return "💬 Ready - start typing! (pause for 3 seconds to send)"
+    return '''<div style="
+        font-family: 'Courier New', monospace;
+        padding: 8px;
+        color: #00aaff;
+        background-color: #0a0a0a;
+        border: 1px solid #333;
+        border-radius: 4px;">
+        <span style="color: #00aaff;">▸</span> Ready - start typing! (pause for 3 seconds to send)
+    </div>'''
