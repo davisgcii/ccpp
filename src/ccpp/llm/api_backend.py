@@ -77,15 +77,27 @@ class AnthropicBackend(LLMBackend):
             Exception: If API call fails
         """
         try:
-            response = self.client.messages.create(
-                model=self.model_name,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-                top_p=config.top_p,
-                stop_sequences=config.stop_sequences or [],
-                messages=messages,
-            )
+            # Filter out empty/whitespace-only stop sequences
+            stop_sequences = [s for s in (config.stop_sequences or []) if s and s.strip()]
 
+            # Build request params
+            # Note: Anthropic doesn't allow both temperature and top_p for some models
+            params = {
+                "model": self.model_name,
+                "max_tokens": config.max_tokens,
+                "messages": messages,
+            }
+
+            # Only add temperature if non-zero, otherwise use top_p
+            if config.temperature > 0:
+                params["temperature"] = config.temperature
+            elif config.top_p < 1.0:
+                params["top_p"] = config.top_p
+
+            if stop_sequences:
+                params["stop_sequences"] = stop_sequences
+
+            response = self.client.messages.create(**params)
             return response.content[0].text
 
         except Exception as e:

@@ -71,8 +71,11 @@ class OllamaBackend(LLMBackend):
         """
         try:
             # List available models
-            models = self.client.list()
-            available_models = [m["name"] for m in models.get("models", [])]
+            models_response = self.client.list()
+
+            # Handle Ollama ListResponse object (has .models attribute)
+            models = models_response.models if hasattr(models_response, 'models') else []
+            available_models = [m.model for m in models if hasattr(m, 'model')]
 
             # Check if our model is available
             if not any(self.model_name in name for name in available_models):

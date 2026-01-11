@@ -30,8 +30,8 @@ fi
 # Install Python dependencies
 echo ""
 echo "Installing Python dependencies..."
-uv sync
-echo "✅ Python dependencies installed"
+uv sync --all-extras
+echo "✅ Python dependencies installed (including dev/test dependencies)"
 
 # Check if ollama is installed
 echo ""
