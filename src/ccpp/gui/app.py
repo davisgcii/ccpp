@@ -165,6 +165,12 @@ def on_user_type(current_text: str, state: PIIClientState):
         any_risk = risk_score.score >= state.guard.risk_threshold_immediate
         logger.debug(f"[on_user_type] EMA updated: {ema:.3f}, should_escalate: {should_escalate}, any_risk: {any_risk}, risk_history_len: {len(state.risk_history)}")
 
+        # CRITICAL: Update guard's flag if this character is high-risk
+        # This flag persists until reset at stream break, tracking if ANY token in buffer was risky
+        if any_risk:
+            state.guard.any_risk_in_buffer = True
+            logger.debug(f"[on_user_type] Set any_risk_in_buffer=True (current char is high-risk)")
+
         # Build CharClassification for this character (for tooltip debugging)
         current_char = user_input[-1] if user_input else ""
         char_idx = len(user_input) - 1
@@ -190,12 +196,14 @@ def on_user_type(current_text: str, state: PIIClientState):
         state.current_char_data.append(char_classification)
 
         # Add to risk history
-        state.risk_history.append({
+        risk_entry = {
             'char_idx': char_idx,
             'p_risk': risk_score.score,
             'ema': ema,
             'any_risk': any_risk,
-        })
+        }
+        state.risk_history.append(risk_entry)
+        logger.debug(f"[on_user_type] Added risk_history entry: char_idx={char_idx}, p_risk={risk_score.score:.3f}, ema={ema:.3f}")
 
         # Generate outputs
         risk_html = create_risk_html(
@@ -239,6 +247,7 @@ def check_and_process_buffer(state: PIIClientState):
             # Get original text
             original_text = state.buffer
             logger.info(f"[check_and_process_buffer] Processing buffer of length {len(original_text)}")
+            logger.debug(f"[check_and_process_buffer] Buffer text: {repr(original_text[:150])}")
 
             # Decide if we need to mask based on already-computed risk scores
             # We already ran Stage 1 on every character during typing, so we can use that
@@ -253,38 +262,45 @@ def check_and_process_buffer(state: PIIClientState):
                 logger.info("[check_and_process_buffer] Masking needed - calling Stage 2")
 
             # Check heuristics for strong matches
-            heuristic_result = state.heuristics.check(original_text)
-            if heuristic_result.strong_match:
+            heuristic_matches = state.heuristics.detect(original_text)
+            logger.debug(f"[check_and_process_buffer] Heuristic matches: {len(heuristic_matches)} found")
+            if state.heuristics.has_strong_match(heuristic_matches):
                 should_mask = True
-                logger.info(f"[check_and_process_buffer] Strong heuristic match: {heuristic_result.category}")
+                logger.info(f"[check_and_process_buffer] Strong heuristic match: {[m.pattern_name for m in heuristic_matches]}")
+            else:
+                logger.debug(f"[check_and_process_buffer] No strong heuristic matches (found {len(heuristic_matches)} total)")
 
             masked_text = original_text
 
             if should_mask:
                 # Call Stage 2 to get entity extractions
                 logger.info("[check_and_process_buffer] Calling Stage 2 for entity extraction")
-                stage2_result = state.stage2.extract_entities(
+                stage2_result = state.stage2.redact(
                     messages=state.conversation,
-                    current_text=original_text,
+                    window_text=original_text,
                 )
                 logger.info(f"[check_and_process_buffer] Stage 2 result: {stage2_result}")
 
                 # Apply masks
-                if stage2_result.entities:
-                    for entity in stage2_result.entities:
-                        mask_str = f"[{entity.category.upper().replace('/', '/')}]"
-                        masked_text = masked_text.replace(entity.text, mask_str)
-                        logger.info(f"[check_and_process_buffer] Masked '{entity.text}' -> '{mask_str}'")
+                if stage2_result.spans:
+                    for span in stage2_result.spans:
+                        mask_str = f"[{span.category.value.upper().replace('/', '/')}]"
+                        masked_text = masked_text.replace(span.entity_text, mask_str)
+                        logger.info(f"[check_and_process_buffer] Masked '{span.entity_text}' -> '{mask_str}'")
                 else:
                     logger.info("[check_and_process_buffer] Stage 2 returned no entities to mask")
             else:
                 logger.info("[check_and_process_buffer] No masking needed - passing through")
 
+            logger.info(f"[check_and_process_buffer] FLOW: Post-masking - original_len={len(original_text)}, masked_len={len(masked_text)}, was_masked={original_text != masked_text}")
+
             # Mark buffer as processed
             state.processed_buffer = state.buffer
+            logger.debug("[check_and_process_buffer] FLOW: Marked buffer as processed")
 
             # Build BufferMetadata for this exchange
             was_masked = original_text != masked_text
+            logger.debug(f"[check_and_process_buffer] FLOW: Building metadata - was_masked={was_masked}, char_data_len={len(state.current_char_data)}, risk_history_len={len(state.risk_history)}")
 
             # Create simplified masker data (for now, since we're using guard internally)
             masker_prompt = None  # Would be populated if we call stage2 directly
@@ -317,14 +333,22 @@ def check_and_process_buffer(state: PIIClientState):
                 "metadata": buffer_metadata.to_dict(),
             }
             state.add_to_conversation(user_message)
+            logger.info(f"[check_and_process_buffer] FLOW: Added user message to conversation - conv_len={len(state.conversation)}, content_preview={masked_text[:50]}")
 
             # Clear character data for next buffer
             state.current_char_data = []
 
+            # Reset any_risk_in_buffer flag for next buffer
+            state.guard.any_risk_in_buffer = False
+            logger.debug("[check_and_process_buffer] Reset any_risk_in_buffer=False for next buffer")
+
         # Call LLM (if available) - do this outside the lock
         assistant_text = ""
+        logger.info(f"[check_and_process_buffer] FLOW: Exited lock - about to call LLM (anthropic={'available' if state.anthropic else 'unavailable'})")
+
         if state.anthropic:
             try:
+                logger.info(f"[check_and_process_buffer] FLOW: Calling LLM with {len(state.conversation)} messages")
                 # Make synchronous call to Claude
                 response = state.anthropic.messages.create(
                     model=ApprovedModel.CLAUDE_HAIKU_4_5.value,
@@ -332,13 +356,17 @@ def check_and_process_buffer(state: PIIClientState):
                     messages=state.conversation,
                 )
 
+                logger.info(f"[check_and_process_buffer] FLOW: LLM call completed - response_len={len(response.content[0].text) if response.content else 0}")
+
                 # Check if interrupted during call
                 if state.should_interrupt:
                     # User started typing - don't add response to history
                     assistant_text = "[Response interrupted - user started typing]"
+                    logger.info("[check_and_process_buffer] FLOW: Response interrupted by user typing")
                 else:
                     # Complete response
                     assistant_text = response.content[0].text
+                    logger.info(f"[check_and_process_buffer] FLOW: Adding assistant response to conversation - preview={assistant_text[:50]}")
 
                     # Add to conversation history
                     state.add_to_conversation({
@@ -348,9 +376,13 @@ def check_and_process_buffer(state: PIIClientState):
 
             except Exception as e:
                 assistant_text = f"[LLM error: {e}]"
+                logger.error(f"[check_and_process_buffer] FLOW: LLM call failed - error={e}", exc_info=True)
 
         else:
             assistant_text = "[LLM unavailable - no API key]"
+            logger.info("[check_and_process_buffer] FLOW: LLM unavailable - no API key set")
+
+        logger.info(f"[check_and_process_buffer] FLOW: Building final UI updates - assistant_text_len={len(assistant_text)}")
 
         # Update status
         status_text = format_status(
@@ -367,6 +399,8 @@ def check_and_process_buffer(state: PIIClientState):
 
         # Mark processing complete
         state.is_processing = False
+
+        logger.info(f"[check_and_process_buffer] FLOW: Returning UI updates - history_len={len(history_html)}, current_text='{current_text}', original_len={len(original_text)}, masked_len={len(masked_text)}, assistant_len={len(assistant_text)}, status_len={len(status_text)}")
 
         return history_html, current_text, original_text, masked_text, assistant_text, status_text
     except Exception as e:

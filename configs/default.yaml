@@ -23,11 +23,70 @@ stage1:
   token_b: RISK
 
   # Few-shot examples (optional, can be populated from constitution)
-  few_shot_examples: []
+  few_shot:
+    enabled: true
+    examples:
+      # Example 1: Current buffer has PII (email)
+      - messages: []
+        current_buffer: "You can reach me at john.doe@gmail.com"
+        label: "RISK"
+
+      # Example 2: Current buffer is safe (generic greeting)
+      - messages: []
+        current_buffer: "Hi, how can I help you today?"
+        label: "SAFE"
+
+      # Example 3: Historical PII, but current buffer is safe
+      - messages:
+          - role: "user"
+            content: "Hi, my name is John Smith"
+        current_buffer: "Nice to meet you! How can I assist you?"
+        label: "SAFE"
+
+      # Example 4: Current buffer has partial PII (name in context of identifier)
+      - messages:
+          - role: "assistant"
+            content: "Can you provide your email address?"
+        current_buffer: "it's george"
+        label: "RISK"
+
+      # Example 5: Safe conversation about PII categories
+      - messages: []
+        current_buffer: "I need help protecting my email and phone number"
+        label: "SAFE"
+
+      # Example 6: Current buffer has phone number
+      - messages: []
+        current_buffer: "My number is 555-123-4567"
+        label: "RISK"
 
   # System prompt (optional)
   system_prompt: |
-    You are a PII detection classifier. Respond with only "SAFE" or "RISK".
+    You are a PII (Personally Identifiable Information) detection classifier for streaming text.
+
+    Your task: Determine if the CURRENT BUFFER contains or is likely to contain PII.
+
+    CRITICAL: Only classify the current buffer, NOT the conversation history.
+    Even if previous messages contained PII, if the current buffer is safe, respond "SAFE".
+
+    PII includes:
+    - Direct identifiers: email, phone, address, full name (when used as identifier), SSN, dates of birth
+    - Financial data: credit card numbers, account numbers, routing numbers
+    - Credentials: API keys, passwords, tokens, private keys
+    - Medical info: diagnoses, prescriptions, record numbers
+    - Precise location: exact addresses, coordinates
+
+    NOT PII (safe):
+    - Generic greetings ("Hi", "How are you?")
+    - Mentions of PII categories without actual data ("my email", "phone number")
+    - Placeholder examples (example.com, 555-1234, test@test.com)
+    - Common first names alone without other identifiers (unless in response to identity request)
+
+    Context-aware classification:
+    - If user was just asked for their email/name/phone, even partial responses like "it's john" are RISK
+    - Generic conversations about orders, help requests are SAFE
+
+    Respond with ONLY one word: "SAFE" or "RISK"
 
 # Stage 2: Accurate Entity Redactor (Span extraction model)
 stage2:
@@ -43,15 +102,83 @@ stage2:
   temperature: 0.0  # Deterministic for consistency
   max_tokens: 200  # Enough for multiple entity extractions
 
-  # Few-shot examples (optional)
-  few_shot_examples: []
+  # Few-shot examples (changed from few_shot_examples to few_shot to match code)
+  few_shot:
+    enabled: true
+    examples:
+      # Example 1: Email in buffer
+      - messages: []
+        window_text: "You can reach me at john.doe@gmail.com"
+        output: 'MASK "john.doe@gmail.com" pii/direct'
 
-  # System prompt (optional)
+      # Example 2: No PII
+      - messages: []
+        window_text: "Hi, how can I help you today?"
+        output: "PASS"
+
+      # Example 3: Phone number
+      - messages:
+          - role: "assistant"
+            content: "What's your contact number?"
+        window_text: "702-555-0147"
+        output: 'MASK "702-555-0147" pii/direct'
+
+      # Example 4: API key
+      - messages: []
+        window_text: "Here's my key: sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+        output: 'MASK "sk_live_4eC39HqLyjWDarjtT1zdp7dc" credentials'
+
+      # Example 5: Name as identifier in context
+      - messages:
+          - role: "assistant"
+            content: "Can you provide your email address?"
+        window_text: "it's george"
+        output: 'MASK "george" pii/direct'
+
+      # Example 6: Multiple entities
+      - messages: []
+        window_text: "Contact me: john@email.com or 555-123-4567"
+        output: 'MASK "john@email.com" pii/direct; MASK "555-123-4567" pii/direct'
+
+  # System prompt (enhanced with detailed instructions)
   system_prompt: |
-    You are a PII entity extractor. Output "PASS" if no PII, or:
-    MASK "entity" category
-    for each entity found. Categories: pii/direct, pii/indirect, credentials,
-    financial, medical, location/precise.
+    You are a PII (Personally Identifiable Information) entity extractor for streaming text.
+
+    Your task: Extract all PII entities from the WINDOW TEXT.
+
+    CRITICAL: Use conversation context to understand what entities are, but ONLY extract entities
+    from the window text itself. Historical PII should NOT be extracted again.
+
+    PII categories:
+    - pii/direct: email, phone, address, full name (as identifier), SSN, DOB+identifiers
+    - pii/indirect: partial identifiers, demographic combos that enable re-identification
+    - credentials: API keys, passwords, tokens, private keys, certificates
+    - financial: credit card, account numbers, routing numbers, tax IDs
+    - medical: diagnoses, prescriptions, lab results, medical record numbers
+    - location/precise: exact addresses, coordinates, real-time location
+
+    NOT PII (do not extract):
+    - Generic text without identifiers
+    - Mentions of PII categories ("my email", "phone number") without actual data
+    - Placeholder examples (example.com, 555-1234, test@test.com)
+    - Common first names alone UNLESS in response to identity request
+
+    Context-aware extraction:
+    - If user was asked for email/name/phone, even partial responses like "it's john" are PII
+    - Use conversation history to understand what entities are
+    - Extract aggressively when context suggests identifier is being provided
+
+    Output format:
+    - If no PII: "PASS"
+    - If PII found: MASK "entity_text" category
+    - Multiple entities: MASK "entity1" cat1; MASK "entity2" cat2
+
+    Examples:
+    - MASK "john.doe@gmail.com" pii/direct
+    - MASK "sk_live_abc123" credentials
+    - PASS
+
+    Respond with ONLY the MASK commands or PASS, nothing else.
 
 # Streaming Configuration
 streaming:

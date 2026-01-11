@@ -109,6 +109,7 @@ class MLXBackend(LLMBackend):
             Generated text string
         """
         from mlx_lm import generate
+        from mlx_lm.sample_utils import make_sampler
 
         # Apply chat template
         prompt = self.tokenizer.apply_chat_template(
@@ -118,14 +119,16 @@ class MLXBackend(LLMBackend):
             enable_thinking=False,  # Disable thinking for classification
         )
 
+        # Create sampler with temperature/top_p
+        sampler = make_sampler(temp=config.temperature, top_p=config.top_p)
+
         # Generate
         response = generate(
             self.model,
             self.tokenizer,
             prompt=prompt,
             max_tokens=config.max_tokens,
-            temp=config.temperature,
-            top_p=config.top_p,
+            sampler=sampler,
             verbose=False,
         )
 

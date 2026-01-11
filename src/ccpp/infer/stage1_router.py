@@ -140,8 +140,19 @@ class Stage1Router:
         Returns:
             RiskScore with P(RISK) probability
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Format prompt with few-shot examples
         prompt_messages = self._format_prompt_with_few_shot(messages, current_text)
+
+        # Debug: Log prompt construction
+        logger.debug(f"[Stage1] few_shot_examples count: {len(self.few_shot_examples)}")
+        logger.debug(f"[Stage1] system_prompt length: {len(self.system_prompt)}")
+        logger.debug(f"[Stage1] prompt_messages count: {len(prompt_messages)}")
+        if len(prompt_messages) > 0:
+            logger.debug(f"[Stage1] First message role: {prompt_messages[0].get('role', 'N/A')}")
+            logger.debug(f"[Stage1] First message preview: {prompt_messages[0].get('content', '')[:100]}")
 
         # Extract logit probabilities
         prob_safe, prob_risk = self.backend.extract_logit_probs(

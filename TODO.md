@@ -4,6 +4,155 @@
 
 This TODO implements a CC++-style **exchange classifier cascade** for **streaming detection + masking** of PII/sensitive info when guarding a **black-box hosted LLM**.
 
+## CRITICAL ISSUES (Current GUI Bugs)
+
+### Issue #1: GUI Processing Hangs After Metadata Building
+**STATUS**: 🔴 BLOCKING - UI never updates despite successful backend processing
+
+**Symptoms**:
+- User types text, pauses 3s
+- Stream break triggers correctly
+- Stage 2 extracts entities successfully
+- Logs stop at "FLOW: Building metadata" (app.py:303)
+- Never reaches "FLOW: Added user message" (app.py:336)
+- UI never shows masked text or LLM response
+
+**Investigation**:
+```python
+# app.py:314-335 - Silent failure zone
+buffer_metadata = BufferMetadata(
+    original_text=original_text,
+    masked_text=masked_text,
+    char_data=state.current_char_data.copy(),  # Possible issue?
+    ...
+)
+state.add_to_conversation({
+    "role": "user",
+    "content": masked_text,
+    "metadata": buffer_metadata.to_dict(),  # Crashes here?
+})
+```
+
+**Evidence from logs** (2026-01-10 20:09:23):
+```
+[INFO] [check_and_process_buffer] Masked 'george@gmail.com' -> '[PII/DIRECT]'
+[INFO] [check_and_process_buffer] FLOW: Post-masking - original_len=88, masked_len=84, was_masked=True
+[DEBUG] [check_and_process_buffer] FLOW: Marked buffer as processed
+[DEBUG] [check_and_process_buffer] FLOW: Building metadata - was_masked=True, char_data_len=15, risk_history_len=15
+# LOGS STOP HERE - never reaches line 336
+```
+
+**Possible causes**:
+1. `BufferMetadata()` constructor failing silently
+2. `buffer_metadata.to_dict()` raising unhandled exception
+3. `state.current_char_data` contains incompatible data (only 15 entries for 88 chars)
+4. Gradio thread being killed without logging
+5. Silent exception in try/except block swallowing error
+
+**Next steps**:
+- [ ] Add try/except with explicit logging around BufferMetadata creation
+- [ ] Add try/except with explicit logging around to_dict() call
+- [ ] Validate char_data structure before creating BufferMetadata
+- [ ] Test BufferMetadata.to_dict() in isolation with actual data
+- [ ] Check if Gradio has output size limits causing silent failures
+
+---
+
+### Issue #2: Gradio Event Batching Causes Missing Datapoints
+**STATUS**: 🟡 DESIGN ISSUE - Not a bug, but architectural mismatch
+
+**Symptoms**:
+- User types 88 characters
+- Only 15 RISK datapoints appear in chart
+- Gaps in visualization between characters
+
+**Root cause**:
+- Gradio's `.input()` event fires in **batches**, not per-character
+- User types quickly → Gradio combines keystrokes into single events
+- `on_user_type()` called with full text so far, but only adds ONE risk_history entry per call
+
+**Evidence from logs**:
+```
+20:09:06 - Received text: length=1   (char 'c')
+20:09:15 - Received text: length=67  (Gradio batched 66 chars!)
+20:09:15 - Received text: length=73  (batched 6 more)
+20:09:16 - Received text: length=79  (batched 6 more)
+20:09:16 - Received text: length=81  (batched 2 more)
+20:09:17 - Received text: length=88  (batched 7 more)
+# Total: 5 events for 88 characters
+```
+
+**Why this happens**:
+- Gradio optimizes by batching rapid input events
+- Each batch contains **entire text so far**, not just new characters
+- GUI processes Stage 1 on full buffer but only adds one datapoint
+
+**Architectural mismatch**:
+- Backend designed for **per-token streaming** from LLM output
+- GUI trying to use it for **user typing** (batched input events)
+
+**Solutions**:
+1. **Track previous length** - only process new characters:
+   ```python
+   prev_len = len(state.prev_buffer or "")
+   curr_len = len(user_input)
+   new_chars = user_input[prev_len:curr_len]
+   # Process each new character individually
+   ```
+2. **Redesign for batch mode** - accept that GUI won't be truly per-character
+3. **Use WebSocket** - bypass Gradio's batching with raw streaming
+
+---
+
+### Issue #3: RISK Scores "Max Out" at 1.000
+**STATUS**: ✅ NOT A BUG - Working correctly!
+
+**What looks wrong**:
+- Chart legend shows "RISK=1.000"
+- All datapoints after character 66 show P(RISK)=1.000
+
+**Why this is correct**:
+```
+char 66: '@'      → P(RISK)=0.989 (high confidence - email pattern)
+char 72: 'g'      → P(RISK)=1.000 (definitely part of email)
+char 78: 'm'      → P(RISK)=1.000 (still in email)
+char 80: 'a'      → P(RISK)=1.000 (still in email)
+char 87: 'com'    → P(RISK)=1.000 (completing email domain)
+```
+
+**Evidence**: Stage 2 correctly extracted `george@gmail.com` as PII/DIRECT
+
+**Conclusion**: Model is correctly flagging email characters as maximum risk. This is expected behavior.
+
+---
+
+## What IS Working ✅
+
+### Backend Processing (All Functional)
+- [x] **MLX backend** - True logit extraction with calibrated probabilities
+  - Stage 1: 6 few-shot examples, 1224-char system prompt
+  - Stage 2: 6 few-shot examples, 1600-char system prompt
+  - Qwen/Qwen3-1.7B-MLX-8bit loaded and functional
+- [x] **Stream break detection** - Triggers correctly after 3s timeout
+- [x] **Heuristics** - Email pattern detected with confidence=1.0
+- [x] **any_risk_in_buffer flag** - Correctly set when P(RISK) ≥ 0.7
+- [x] **Stage 2 entity extraction** - Successfully extracts entities:
+  ```
+  Input: "...my email address -- george@gmail.com"
+  Output: MASK "george@gmail.com" pii/direct
+  Masked: "...my email address -- [PII/DIRECT]"
+  ```
+- [x] **EMA smoothing** - Correctly tracks risk over time:
+  ```
+  char 66: p_risk=0.989, ema=0.276
+  char 72: p_risk=1.000, ema=0.384
+  char 78: p_risk=1.000, ema=0.477
+  char 80: p_risk=1.000, ema=0.555
+  char 87: p_risk=1.000, ema=0.622 (exceeds T_high=0.6)
+  ```
+
+---
+
 ## Phase 1: Foundations
 
 ### Constitutions
@@ -23,12 +172,14 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
   - [x] `RiskState` (EMA smoothing, hysteresis thresholds, routing state)
   - [x] `MaskSpan` (entity text + category, NOT offsets)
   - [x] `RedactorOutput` (with `apply_masks()` using exact string matching)
+  - [x] `BufferMetadata` - Per-buffer metadata with char_data and risk_history
+  - [x] `CharClassification` - Per-character debugging metadata
 - [x] Implement `src/ccpp/infer/guard.py`:
   - [x] `ExchangePIIGuard` with:
     - [x] `ingest_chunk(text)` - per-token/chunk ingestion
     - [x] `force_emit()` - force emission at end of stream
     - [x] Returns `emit_text` (already redacted) and `events` (risk updates, masking)
-  - [x] Stream break detection (timeout-based, default 500ms)
+  - [x] Stream break detection (timeout-based, default 500ms, configurable to 3s)
   - [x] Three-condition masking: any_risk_in_buffer OR ema≥T_high OR strong_match
   - [x] No EMA reset by default (natural decay across stream breaks)
   - [x] Default behavior: **no unmasking** (irreversible once emitted)
@@ -36,11 +187,13 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
 ### Stage 1 router (runs per-token, not chunked)
 - [x] Implement `src/ccpp/infer/stage1_router.py`:
   - [x] Mock mode: heuristic-based P(RISK) scoring
-  - [ ] Real mode: Load stage1 model
-  - [ ] Real mode: **Logit-based classification** (single forward pass)
-    - [ ] Extract P(RISK) from softmax over SAFE/RISK token logits
-    - [ ] No text generation (5-6x faster than autoregressive)
-  - [ ] Exchange-aware: full conversation context + current buffer
+  - [x] Real mode: MLX backend with true logit extraction
+    - [x] Extract P(RISK) from softmax over SAFE/RISK token logits
+    - [x] Single forward pass (5-6x faster than text generation)
+    - [x] Calibrated probabilities (not fake binary 0.0/1.0)
+  - [x] Exchange-aware: full conversation context + current buffer
+  - [x] Few-shot examples (6 examples with context)
+  - [x] Comprehensive system prompt (1224 chars)
 
 ### Fast heuristics (always-on)
 - [x] Implement `src/ccpp/infer/heuristics.py`:
@@ -52,13 +205,41 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
 ### Stage 2 span redactor (routed traffic at stream breaks)
 - [x] Implement `src/ccpp/infer/stage2_redactor.py`:
   - [x] Mock mode: regex-based entity extraction
-  - [ ] Real mode: Load stage2 model (Qwen3-7B)
-  - [ ] Real mode: Input: context + buffer with overlap tail
-  - [ ] Real mode: Output: `PASS` or `MASK "entity_text" category; ...`
-    - [ ] **Entity text format** (NOT character offsets - LLMs bad at counting)
-    - [ ] Quoted strings to handle spaces/special chars
+  - [x] Real mode: MLX backend with text generation
+    - [x] Input: context + buffer with overlap tail
+    - [x] Output: `PASS` or `MASK "entity_text" category; ...`
+    - [x] Entity text format (NOT character offsets)
+    - [x] Quoted strings to handle spaces/special chars
   - [x] Apply masks using exact string matching
   - [x] Mask format: `[{type}]` (e.g., `[PII/DIRECT]`)
+  - [x] Few-shot examples (6 examples with multi-entity cases)
+  - [x] Comprehensive system prompt (1600 chars)
+
+### LLM Backend Harness
+- [x] Implement `src/ccpp/llm/base.py` - Base classes for backends
+- [x] Implement `src/ccpp/llm/factory.py` - Backend factory with routing
+- [x] Implement `src/ccpp/llm/ollama_backend.py` - Ollama integration (text-based, fake probabilities)
+- [x] Implement `src/ccpp/llm/mlx_backend.py` - **MLX integration** (TRUE logit extraction)
+  - [x] Load Qwen3-1.7B-MLX-8bit from HuggingFace
+  - [x] extract_logit_probs() - Extract raw logits and apply softmax
+  - [x] generate() - Text generation with temperature control
+  - [x] Token ID caching for SAFE/RISK tokens
+- [x] Implement `src/ccpp/llm/anthropic_backend.py` - Anthropic API
+- [x] Implement `src/ccpp/llm/openai_backend.py` - OpenAI API
+
+### Configuration System
+- [x] Implement `src/ccpp/config.py`:
+  - [x] YAML-based config loading with inheritance
+  - [x] Environment-specific configs (default, dev, prod)
+  - [x] Runtime overrides via environment variables
+  - [x] Config extraction functions for Stage 1 and Stage 2
+  - [x] Model name validation (ApprovedModel enum)
+- [x] Create `configs/default.yaml`:
+  - [x] MLX backend configuration
+  - [x] Stage 1: 6 few-shot examples, comprehensive prompting
+  - [x] Stage 2: 6 few-shot examples, comprehensive prompting
+  - [x] Stream break timeout: 2000ms (2s for voice)
+  - [x] EMA beta: 0.85, thresholds (T_high=0.6, T_low=0.3, risk=0.7)
 
 ### Demo (simulated streaming)
 - [x] `scripts/demo.py`:
@@ -66,7 +247,6 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
   - [x] Visual risk meter with color-coded output
   - [x] 6 scenarios: email, phone, benign, multiple entities, partial detection, API key
   - [x] Interactive mode (`-i` flag)
-  - [ ] TODO: Integrate with actual base model API streaming
 
 ### Interactive GUI client (real-time user testing)
 - [x] `scripts/gui_client.py` - **Pop-up window application** (Gradio-based):
@@ -75,32 +255,95 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
     - [x] `components.py` - Chart and HTML generation
     - [x] `app.py` - Main Gradio interface and event handlers
   - [x] **Input display (top)**:
-    - [x] Show user's text as they type in real-time (Textbox.change)
+    - [x] Show user's text as they type in real-time (Textbox.input)
     - [x] Risk indicators appear under words that trigger risk (HTML with red highlights)
   - [x] **Real-time risk chart (bottom)**:
-    - [x] Live chart showing P(RISK) and EMA over time (Plotly)
+    - [x] ASCII art chart with P(RISK) and EMA (box-drawing characters)
     - [x] Horizontal threshold lines (T_high and T_low) clearly visible
-    - [x] EMA line turns red when crossing threshold
+    - [x] EMA blocks turn red when crossing threshold
     - [x] Updates continuously as user types
   - [x] **Stream break and masking**:
-    - [x] Pause detection based on configured timeout (default 3s via Timer)
+    - [x] Pause detection based on configured timeout (3s via Timer)
     - [x] After pause, run masker on buffered text
-    - [x] Display masked version directly below original text (side-by-side comparison)
+    - [x] Display masked version (would work if not for metadata bug)
   - [x] **Base model streaming**:
-    - [x] Send masked text to base model (Anthropic Claude)
-    - [x] Display response in window
-    - [x] **Interruption handling**: If user starts typing during response:
-      - [x] Set interrupt flag
-      - [x] Only include displayed portion in conversation history
-      - [x] Discard unplayed portion of response
-  - [x] **UI Framework**: Gradio (web-based, easy to iterate)
+    - [x] Anthropic Claude integration ready
+    - [x] Interruption handling implemented
+  - [x] **UI Framework**: Gradio (web-based terminal aesthetic)
 - [x] Environment setup:
   - [x] `.env` file for API keys (ANTHROPIC_API_KEY)
   - [x] `.env.example` template
   - [x] `.gitignore` to exclude `.env`, models, datasets
-- [x] `scripts/client.py` (CLI version - basic, for debugging only):
-  - [x] Basic parameter fix for ExchangePIIGuard
-  - [x] Note: This is NOT the main interactive client (see gui_client.py above)
+- [x] `scripts/client.py` (CLI version - basic, for debugging only)
+
+### Debugging and Logging
+- [x] Comprehensive logging at all stages:
+  - [x] Stage 1: few-shot count, prompt length, logit values
+  - [x] Stage 2: few-shot count, prompt length, entity extraction
+  - [x] FLOW logs: trace execution through processing pipeline
+  - [x] DEBUG logs: character-level detail, timer events
+
+---
+
+## IMMEDIATE PRIORITIES (Before continuing to Phase 3)
+
+### 1. Fix GUI Metadata Crash 🔴 CRITICAL
+- [ ] Add explicit try/except around BufferMetadata creation (app.py:314)
+- [ ] Add explicit try/except around to_dict() call (app.py:333)
+- [ ] Log exact exception and traceback
+- [ ] Test BufferMetadata serialization in isolation
+- [ ] Fix or work around the crash
+- [ ] Verify UI updates after fix
+
+### 2. Fix or Accept Gradio Event Batching 🟡 IMPORTANT
+- [ ] **Option A**: Track previous buffer length, process only new characters
+- [ ] **Option B**: Document as known limitation of Gradio-based GUI
+- [ ] **Option C**: Redesign GUI for batch-mode processing (update chart less frequently)
+- [ ] **Option D**: Replace Gradio with WebSocket-based streaming (major refactor)
+
+### 3. Model Enum Restructure 🟡 CLEANUP
+- [ ] Restructure ApprovedModel by provider:
+  ```python
+  class ApprovedModel(Enum):
+      # MLX models (local, true logit extraction)
+      MLX_QWEN3_1_7B_8BIT = "Qwen/Qwen3-1.7B-MLX-8bit"
+
+      # Ollama models (local, fake probabilities)
+      OLLAMA_QWEN3_1_7B = "qwen3:1.7b"
+
+      # Anthropic models (API)
+      CLAUDE_HAIKU_4_5 = "claude-haiku-4-5-20251001"
+
+      # OpenAI models (API)
+      GPT_5_MINI = "gpt-5-mini"
+  ```
+- [ ] Add metadata: `has_logit_extraction: bool` flag
+- [ ] Enforce: Stage 1 MUST use model with logit extraction
+- [ ] Update all configs and tests
+
+### 4. Integration Tests 🟡 VALIDATION
+- [ ] Add MLX backend integration tests
+- [ ] Test logit extraction with real model
+- [ ] Test Stage 2 entity extraction with real model
+- [ ] Test end-to-end pipeline with MLX backend
+
+### 5. Documentation Updates 🟢 POLISH
+- [ ] Update README with current MLX backend status
+- [ ] Add "Known Issues" section to README
+- [ ] Update CLAUDE.md with MLX backend details
+- [ ] Document Gradio event batching limitation
+- [ ] Add troubleshooting guide
+
+### 6. Cleanup 🟢 HOUSEKEEPING
+- [ ] Delete unnecessary files:
+  - [ ] GUI_IMPLEMENTATION_PLAN.md (archived to docs/)
+  - [ ] GUI_REQUIREMENTS.md (archived to docs/)
+  - [ ] src/ccpp/gui/components.py.backup
+  - [ ] Any old config files (stage1_llm.yaml, stage2_llm.yaml if unused)
+- [ ] Update .gitignore for MLX model cache
+- [ ] Review and clean up logs
+
+---
 
 ## Phase 3: Synthetic data generation (with entity labels)
 
@@ -243,92 +486,102 @@ Each record should include:
   - [x] Buffer-scoped label training approach
   - [x] Fast heuristics patterns and allowlists
 - [ ] `README.md` with:
-  - [ ] Project overview and motivation
-  - [ ] Quick start guide
-  - [ ] Architecture diagram
-  - [ ] How this maps to CC++ exchange classifiers + cascades
-  - [ ] Demo usage examples
+  - [x] Project overview and motivation
+  - [x] Quick start guide
+  - [x] Architecture diagram
+  - [x] Configuration system documentation
+  - [x] Demo usage examples
+  - [ ] **UPDATE NEEDED**: MLX backend status, known GUI issues
 - [ ] Blog post / technical writeup:
   - [ ] Comparison to CC++ jailbreak detection
   - [ ] Why PII masking needs different label scope (buffer-scoped vs exchange-scoped)
   - [ ] Cross-break detection enabled by EMA persistence
   - [ ] Entity text vs character offsets tradeoff
+  - [ ] MLX vs Ollama logit extraction comparison
 
 ---
 
 ## Current Status (update as you go)
-**Last Updated**: 2026-01-10 (late evening)
+**Last Updated**: 2026-01-10 23:00
 
 ### Confirmed Architectural Decisions
 
 **Core Architecture:**
 - **Approach**: Streaming Masking (detect PII entities, redact them, continue streaming)
 - **Per-token Classification**: Stage 1 runs on every new token/chunk (NOT K=32 chunking)
-- **Stream Break Detection**: Timeout-based (default 500ms), mimics VAD breaks in speech-to-text
+- **Stream Break Detection**: Timeout-based (default 500ms, GUI uses 3s), mimics VAD breaks in speech-to-text
 - **No Blocking**: System masks and continues rather than refusing/stopping
 
 **Stage 1 (Router):**
+- **Backend**: MLX with Qwen/Qwen3-1.7B-MLX-8bit
 - **Output**: Logit-based P(RISK) ∈ [0,1] from softmax over SAFE/RISK tokens
 - **Speed**: 5-6x faster than text generation (single forward pass, no autoregressive)
-- **Training**: Softmax-weighted loss to handle temporal "when to flag" problem
+- **Prompting**: 6 few-shot examples + 1224-char system prompt
 - **Label Scope**: Buffer-scoped (current buffer only, NOT entire exchange)
   - Historical PII in context → label = SAFE
   - Only flag RISK if PII in current_buffer
 
 **Stage 2 (Redactor):**
+- **Backend**: MLX with Qwen/Qwen3-1.7B-MLX-8bit (same model as Stage 1 for now)
 - **Output**: Entity text format `MASK "entity_text" category` (NOT character offsets)
 - **Rationale**: LLMs are bad at counting characters but good at recognizing entities
+- **Prompting**: 6 few-shot examples + 1600-char system prompt
 - **Masking**: Exact string matching with quote escaping
+- **Working**: Successfully extracts entities like `george@gmail.com` → `[PII/DIRECT]`
 
 **Risk Management:**
 - **EMA Smoothing**: beta=0.85, naturally decays (no reset by default)
 - **Hysteresis**: T_high=0.6 (escalate), T_low=0.3 (de-escalate)
 - **Three-condition masking**: any_risk_in_buffer OR ema≥T_high OR strong_heuristic_match
 - **any_risk_in_buffer**: Set if any token has P(RISK) ≥ 0.7 (resets at stream breaks)
+- **Working**: Correctly tracks risk and triggers masking decisions
 
 **Label Schema:**
 - 7 categories: safe, pii/direct, pii/indirect, credentials, financial, medical, location/precise
 
-### Completed Tasks (Phase 2 - Mock Implementation) ✅
-- [x] Rewrite `src/ccpp/types.py` with PII-focused types
-  - [x] `PIICategory`, `RiskScore` (with `from_logits()`), `MaskSpan` (entity text)
-  - [x] `RedactorOutput` (with `apply_masks()` using exact string matching)
-  - [x] `HoldbackBuffer` (with overlap tail), `RiskState` (EMA + hysteresis)
-- [x] Create `constitutions/pii_sensitive.md` with entity text examples
-- [x] Create `constitutions/harmless.md` (benign patterns, allowlists)
-- [x] Implement `src/ccpp/infer/heuristics.py` (regex detectors with allowlists)
-- [x] Implement `src/ccpp/infer/stage1_router.py` (mock: heuristic-based P(RISK))
-- [x] Implement `src/ccpp/infer/stage2_redactor.py` (mock: regex-based entity extraction)
-- [x] Implement `src/ccpp/infer/guard.py` (ExchangePIIGuard with full streaming logic)
-- [x] Implement `scripts/demo.py` (6 scenarios + interactive mode)
-- [x] Implement `scripts/client.py` (basic CLI debugging client)
-- [x] Implement GUI interactive client (`src/ccpp/gui/` + `scripts/gui_client.py`):
-  - [x] Gradio-based pop-up window with real-time visualization
-  - [x] **Terminal aesthetic** (dark theme, monospace, green text)
-  - [x] State management with thread safety (`state.py`)
-  - [x] Chart and HTML components (`components.py`)
-  - [x] Main application and event handlers (`app.py`)
-  - [x] **ASCII art risk chart** (box-drawing chars, no Plotly dependency)
-    - [x] P(RISK) shown as blue dots (●)
-    - [x] EMA shown as blocks (█) - green when safe, red when escalated
-    - [x] Threshold lines: T_high (┈) and T_low (·)
-  - [x] Visual risk indicators (red highlights under risky characters)
-  - [x] Stream break detection (timer-based, 3s default)
-  - [x] Side-by-side original vs masked comparison
-  - [x] LLM integration with interruption handling
-  - [x] Terminal-style UI with box-drawing characters and status symbols
-- [x] Update `CLAUDE.md` with:
-  - [x] Per-token architecture diagram
-  - [x] Detailed conversation example with 18 turns
-  - [x] EMA decay behavior (no reset)
-  - [x] Buffer-scoped label explanation
+### Completed Tasks ✅
 
-### Next Steps
-1. **Phase 3**: Implement synthetic data generation
-   - Create Stage 1 training data with buffer-scoped labels
-   - Create Stage 2 training data with entity text format
-3. **Phase 4**: Implement augmentations (cross-break entity splitting)
-4. **Phase 5**: Implement real model training
-   - Stage 1: Logit-based with softmax-weighted loss
-   - Stage 2: Entity text generation
-5. **Phase 6**: Evaluation + calibration on real data
+**Phase 2 - Core Implementation:**
+- [x] All core types and state machines
+- [x] ExchangePIIGuard with streaming logic
+- [x] Fast heuristics with allowlists
+- [x] Stage 1 router with MLX backend and true logit extraction
+- [x] Stage 2 redactor with MLX backend and entity extraction
+- [x] LLM harness with 4 backends (Ollama, MLX, Anthropic, OpenAI)
+- [x] Configuration system with YAML + environment overrides
+- [x] Demo script with 6 scenarios + interactive mode
+- [x] GUI client with terminal aesthetic and real-time visualization
+- [x] Comprehensive logging and debugging
+
+**MLX Integration (Critical Upgrade):**
+- [x] Switched from Ollama (fake probabilities) to MLX (true logit extraction)
+- [x] Implemented extract_logit_probs() with softmax over SAFE/RISK tokens
+- [x] Verified calibrated probabilities (not binary 0.0/1.0)
+- [x] Added 6 few-shot examples to both Stage 1 and Stage 2
+- [x] Enhanced system prompts (1224 chars Stage 1, 1600 chars Stage 2)
+- [x] Fixed config extraction for few_shot and system_prompt
+- [x] Fixed any_risk_in_buffer flag connectivity in GUI
+- [x] Added comprehensive FLOW logging for debugging
+
+### Active Bugs 🔴
+
+**GUI Metadata Crash**:
+- Logs stop at "Building metadata" (app.py:303)
+- Never reaches "Added user message" (app.py:336)
+- Silent failure prevents UI updates
+- Backend processing completes successfully
+- **Impact**: GUI completely non-functional despite working backend
+
+**Gradio Event Batching**:
+- User types 88 chars, only 15 datapoints show in chart
+- Gradio batches rapid keystrokes into single events
+- on_user_type() adds one entry per event, not per character
+- **Impact**: Incomplete visualization, but backend unaffected
+
+### Next Steps (Prioritized)
+1. **Fix GUI metadata crash** - Critical blocker for any GUI use
+2. **Fix or document Gradio batching** - Decide on architectural approach
+3. **Model enum restructure** - Clarify which models support logit extraction
+4. **Integration tests** - Validate MLX backend end-to-end
+5. **Documentation updates** - Reflect current status and known issues
+6. **Phase 3**: Begin synthetic data generation once GUI stabilized

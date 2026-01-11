@@ -190,8 +190,15 @@ class Stage2Redactor:
         Returns:
             RedactorOutput with extracted entities
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Format prompt with few-shot examples
         prompt_messages = self._format_prompt_with_few_shot(messages, window_text)
+
+        logger.debug(f"[Stage2] few_shot_examples count: {len(self.few_shot_examples)}")
+        logger.debug(f"[Stage2] system_prompt length: {len(self.system_prompt)}")
+        logger.debug(f"[Stage2] window_text: {window_text[:100]}")
 
         # Generate entity extraction output
         output = self.backend.generate(
@@ -199,8 +206,12 @@ class Stage2Redactor:
             self.generation_config,
         )
 
+        logger.info(f"[Stage2] Generated output: {repr(output[:200])}")
+
         # Parse output to extract entities
-        return self._parse_extraction_output(output)
+        result = self._parse_extraction_output(output)
+        logger.info(f"[Stage2] Parsed {len(result.spans)} entities")
+        return result
 
     def _format_prompt_with_few_shot(
         self,

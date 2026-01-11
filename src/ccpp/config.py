@@ -242,15 +242,33 @@ def get_stage1_config(config: Config) -> Dict[str, Any]:
         config: Main config object
 
     Returns:
-        Dict suitable for passing to create_backend_from_config()
+        Dict suitable for passing to create_backend_from_config() and Stage1Router
     """
-    return {
+    result = {
         "backend": config.stage1.backend,
         "model_name": config.stage1.model_name,
         "timeout": config.stage1.timeout,
         "temperature": config.stage1.temperature,
         "max_tokens": config.stage1.max_tokens,
     }
+
+    # Add optional fields if present
+    if hasattr(config.stage1, "few_shot"):
+        result["few_shot"] = config.stage1.few_shot.to_dict() if isinstance(config.stage1.few_shot, Config) else config.stage1.few_shot
+
+    if hasattr(config.stage1, "system_prompt"):
+        result["system_prompt"] = config.stage1.system_prompt
+
+    if hasattr(config.stage1, "logit_extraction"):
+        result["logit_extraction"] = config.stage1.logit_extraction.to_dict() if isinstance(config.stage1.logit_extraction, Config) else config.stage1.logit_extraction
+    elif hasattr(config.stage1, "token_a") and hasattr(config.stage1, "token_b"):
+        # Fallback: extract token_a and token_b directly
+        result["logit_extraction"] = {
+            "token_a": config.stage1.token_a,
+            "token_b": config.stage1.token_b,
+        }
+
+    return result
 
 
 def get_stage2_config(config: Config) -> Dict[str, Any]:
@@ -260,15 +278,24 @@ def get_stage2_config(config: Config) -> Dict[str, Any]:
         config: Main config object
 
     Returns:
-        Dict suitable for passing to create_backend_from_config()
+        Dict suitable for passing to create_backend_from_config() and Stage2Redactor
     """
-    return {
+    result = {
         "backend": config.stage2.backend,
         "model_name": config.stage2.model_name,
         "timeout": config.stage2.timeout,
         "temperature": config.stage2.temperature,
         "max_tokens": config.stage2.max_tokens,
     }
+
+    # Add optional fields if present
+    if hasattr(config.stage2, "few_shot"):
+        result["few_shot"] = config.stage2.few_shot.to_dict() if isinstance(config.stage2.few_shot, Config) else config.stage2.few_shot
+
+    if hasattr(config.stage2, "system_prompt"):
+        result["system_prompt"] = config.stage2.system_prompt
+
+    return result
 
 
 # Convenience function for loading default config
