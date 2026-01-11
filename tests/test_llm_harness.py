@@ -16,6 +16,20 @@ from ccpp.llm.api_backend import AnthropicBackend, OpenAIBackend
 from ccpp.types import ApprovedModel
 
 
+
+def _create_mock_list_response(model_names):
+    """Helper to create mock Ollama ListResponse."""
+    mock_models = []
+    for name in model_names:
+        mock_model = MagicMock()
+        mock_model.model = name
+        mock_models.append(mock_model)
+    
+    mock_list_response = MagicMock()
+    mock_list_response.models = mock_models
+    return mock_list_response
+
+
 class TestGenerationConfig:
     """Tests for GenerationConfig."""
 
@@ -68,9 +82,15 @@ class TestOllamaBackend:
         """Test successful OllamaBackend initialization."""
         # Mock client instance
         mock_client = MagicMock()
-        mock_client.list.return_value = {
-            "models": [{"name": ApprovedModel.QWEN3_1_7B.value}]
-        }
+
+        # Mock ListResponse object with .models attribute
+        mock_model = MagicMock()
+        mock_model.model = ApprovedModel.QWEN3_1_7B.value
+
+        mock_list_response = MagicMock()
+        mock_list_response.models = [mock_model]
+
+        mock_client.list.return_value = mock_list_response
         mock_client_class.return_value = mock_client
 
         backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
@@ -81,7 +101,7 @@ class TestOllamaBackend:
     def test_ollama_backend_model_not_found(self, mock_client_class):
         """Test OllamaBackend when model not found."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": "other:model"}]}
+        mock_client.list.return_value = _create_mock_list_response(["other:model"])
         mock_client_class.return_value = mock_client
 
         with pytest.raises(ValueError, match="Model .* not found"):
@@ -89,7 +109,7 @@ class TestOllamaBackend:
 
     @patch('ollama.Client')
     def test_ollama_backend_connection_error(self, mock_client_class):
-        """Test OllamaBackend connection error."""
+        """Test OllamaBackend when Ollama server not accessible."""
         mock_client = MagicMock()
         mock_client.list.side_effect = Exception("Connection refused")
         mock_client_class.return_value = mock_client
@@ -99,9 +119,9 @@ class TestOllamaBackend:
 
     @patch('ollama.Client')
     def test_ollama_generate(self, mock_client_class):
-        """Test Ollama text generation."""
+        """Test text generation."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
         mock_client.chat.return_value = {"message": {"content": "Hello there!"}}
         mock_client_class.return_value = mock_client
 
@@ -116,9 +136,9 @@ class TestOllamaBackend:
 
     @patch('ollama.Client')
     def test_ollama_extract_logit_probs_safe(self, mock_client_class):
-        """Test logit probability extraction returning SAFE."""
+        """Test logit extraction for safe content."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
         mock_client.chat.return_value = {"message": {"content": "SAFE"}}
         mock_client_class.return_value = mock_client
 
@@ -133,9 +153,9 @@ class TestOllamaBackend:
 
     @patch('ollama.Client')
     def test_ollama_extract_logit_probs_risk(self, mock_client_class):
-        """Test logit probability extraction returning RISK."""
+        """Test logit extraction for risky content."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
         mock_client.chat.return_value = {"message": {"content": "RISK"}}
         mock_client_class.return_value = mock_client
 
@@ -224,7 +244,7 @@ class TestBackendFactory:
     def test_factory_creates_ollama_backend(self, mock_client_class):
         """Test factory creates Ollama backend."""
         mock_client = MagicMock()
-        mock_client.list.return_value = {"models": [{"name": ApprovedModel.QWEN3_1_7B.value}]}
+        mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
         mock_client_class.return_value = mock_client
 
         config = {"backend": "ollama", "model_name": ApprovedModel.QWEN3_1_7B.value}
