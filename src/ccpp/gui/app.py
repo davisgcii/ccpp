@@ -244,7 +244,7 @@ def check_and_process_buffer(state: PIIClientState):
             # We already ran Stage 1 on every character during typing, so we can use that
             should_mask = False
             ema_risk = state.guard.risk_state.ema_risk
-            any_risk = state.guard.risk_state.any_risk_in_buffer
+            any_risk = state.guard.any_risk_in_buffer  # This is on guard, not risk_state
 
             logger.info(f"[check_and_process_buffer] ema_risk={ema_risk:.3f}, any_risk={any_risk}, t_high={state.t_high}")
 
