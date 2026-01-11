@@ -491,8 +491,8 @@ def create_gui(state: PIIClientState) -> tuple:
 
         # Event handlers
 
-        # User typing
-        current_display.change(
+        # User typing - use .input() for per-keystroke updates, not .change()
+        current_display.input(
             fn=lambda text: on_user_type(text, state),
             inputs=current_display,
             outputs=[user_input_hidden, risk_indicators, risk_chart, status],
