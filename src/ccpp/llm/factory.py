@@ -8,6 +8,7 @@ from typing import Optional
 
 from .base import LLMBackend, ModelBackend
 from .ollama_backend import OllamaBackend
+from .mlx_backend import MLXBackend
 from .api_backend import AnthropicBackend, OpenAIBackend
 from ccpp.types import ApprovedModel
 
@@ -73,6 +74,8 @@ def create_backend_from_config(config: dict) -> LLMBackend:
     # Route to appropriate backend
     if backend_type == ModelBackend.OLLAMA:
         return _create_ollama_backend(config)
+    elif backend_type == ModelBackend.MLX:
+        return _create_mlx_backend(config)
     elif backend_type == ModelBackend.ANTHROPIC:
         return _create_anthropic_backend(config)
     elif backend_type == ModelBackend.OPENAI:
@@ -100,6 +103,27 @@ def _create_ollama_backend(config: dict) -> OllamaBackend:
         model_name=config["model_name"],
         host=config.get("host"),  # Optional: None uses Ollama default
         timeout=config.get("timeout", 60),
+    )
+
+
+def _create_mlx_backend(config: dict) -> MLXBackend:
+    """Create MLX backend from config.
+
+    Args:
+        config: Configuration dict
+
+    Returns:
+        MLXBackend instance
+
+    Raises:
+        ValueError: If model_name missing
+    """
+    if "model_name" not in config:
+        raise ValueError("MLX backend requires 'model_name' in config")
+
+    return MLXBackend(
+        model_name=config["model_name"],
+        quantized=config.get("quantized", True),  # Default to 8-bit quantized
     )
 
 

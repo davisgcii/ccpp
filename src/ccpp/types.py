@@ -29,6 +29,9 @@ class ApprovedModel(Enum):
     # Local models (via Ollama)
     QWEN3_1_7B = "qwen3:1.7b"  # Fast, lightweight - ideal for Stage 1 and Stage 2
 
+    # Local models (via MLX - Apple Silicon with true logit extraction)
+    QWEN3_1_7B_MLX = "Qwen/Qwen3-1.7B-MLX-8bit"  # Quantized MLX model for M-series
+
     # Cloud models (via APIs)
     CLAUDE_HAIKU_4_5 = "claude-haiku-4-5-20251001"  # Fast, cost-effective (Anthropic)
     GPT_5_MINI = "gpt-5-mini"  # Alternative cloud option (OpenAI)

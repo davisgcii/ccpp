@@ -4,13 +4,14 @@
 # You can override these settings by creating environment-specific configs
 # (e.g., dev.yaml, prod.yaml) or by passing config dicts at runtime.
 
-# Stage 1: Fast Risk Router (Logit-based classifier)
+# Stage 1: Fast Risk Router (Logit-based classifier with TRUE logit extraction)
 stage1:
-  # Backend selection: "ollama", "anthropic", "openai"
-  backend: ollama
+  # Backend selection: "mlx", "ollama", "anthropic", "openai"
+  backend: mlx  # Use MLX for calibrated probabilities from raw logits
 
   # Model configuration
-  model_name: qwen3:1.7b  # Lightweight model for fast classification
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # MLX quantized model (Apple Silicon)
+  quantized: true  # Use 8-bit quantization for speed
 
   # Generation settings
   timeout: 60  # seconds
@@ -30,11 +31,12 @@ stage1:
 
 # Stage 2: Accurate Entity Redactor (Span extraction model)
 stage2:
-  # Backend selection: "ollama", "anthropic", "openai"
-  backend: ollama
+  # Backend selection: "mlx", "ollama", "anthropic", "openai"
+  backend: mlx  # Use MLX for consistent local inference
 
   # Model configuration
-  model_name: qwen3:1.7b  # Larger model for accurate extraction
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # Same model as Stage 1
+  quantized: true
 
   # Generation settings
   timeout: 120  # seconds

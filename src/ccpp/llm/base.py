@@ -13,6 +13,7 @@ from typing import Generator, Optional
 class ModelBackend(Enum):
     """Supported model backends."""
     OLLAMA = "ollama"
+    MLX = "mlx"  # Local models with true logit extraction (Apple Silicon)
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
 
