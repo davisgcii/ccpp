@@ -272,6 +272,33 @@ def get_stage1_config(config: Config) -> Dict[str, Any]:
             "token_b": config.stage1.token_b,
         }
 
+    if hasattr(config.stage1, "generation"):
+        result["generation"] = (
+            config.stage1.generation.to_dict()
+            if isinstance(config.stage1.generation, Config)
+            else config.stage1.generation
+        )
+
+    if hasattr(config.stage1, "enable_thinking"):
+        result["enable_thinking"] = config.stage1.enable_thinking
+
+    if hasattr(config.stage1, "diagnostic_prompt_mode"):
+        result["diagnostic_prompt_mode"] = config.stage1.diagnostic_prompt_mode
+
+    if hasattr(config.stage1, "sequence_loglikelihood"):
+        result["sequence_loglikelihood"] = (
+            config.stage1.sequence_loglikelihood.to_dict()
+            if isinstance(config.stage1.sequence_loglikelihood, Config)
+            else config.stage1.sequence_loglikelihood
+        )
+
+    if hasattr(config.stage1, "calibration"):
+        result["calibration"] = (
+            config.stage1.calibration.to_dict()
+            if isinstance(config.stage1.calibration, Config)
+            else config.stage1.calibration
+        )
+
     return result
 
 
@@ -302,6 +329,17 @@ def get_stage2_config(config: Config) -> Dict[str, Any]:
     # New: Add prompt_template if present
     if hasattr(config.stage2, "prompt_template"):
         result["prompt_template"] = config.stage2.prompt_template
+
+    if hasattr(config.stage2, "generation"):
+        result["generation"] = (
+            config.stage2.generation.to_dict()
+            if isinstance(config.stage2.generation, Config)
+            else config.stage2.generation
+        )
+
+    for key in ("top_p", "top_k", "min_p", "do_sample", "stop_sequences", "enable_thinking"):
+        if hasattr(config.stage2, key):
+            result[key] = getattr(config.stage2, key)
 
     return result
 

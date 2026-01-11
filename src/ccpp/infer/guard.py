@@ -82,10 +82,16 @@ class ExchangePIIGuard:
             - events: List of event dicts (e.g., {"type": "risk_escalated", "ema": 0.75})
         """
         events = []
+        emit_text = ""
+        now = time.time()
+
+        # Check for a stream break BEFORE appending the new token.
+        if self._check_stream_break(now) and len(self.buffer) > 0:
+            emit_text = self._emit_buffer(events, reason="stream_break")
 
         # 1. Append to buffer
         self.buffer.append(text)
-        self.last_token_time = time.time()
+        self.last_token_time = now
 
         # 2. Run fast heuristics
         matches = self.heuristics.detect(self.buffer.raw_text)
@@ -112,65 +118,9 @@ class ExchangePIIGuard:
             "is_escalated": is_escalated,
         })
 
-        # 4. Check for stream break
-        if not self._check_stream_break():
-            # No stream break yet, keep accumulating
-            return ("", events)
-
-        # Stream break detected!
-        events.append({"type": "stream_break"})
-
-        # 5. Masking decision (three conditions)
-        should_mask = (
-            self.any_risk_in_buffer
-            or is_escalated
-            or strong_match
-        )
-
-        if should_mask:
-            # Run Stage 2 to extract entities
-            window = self.buffer.get_window_with_overlap()
-            redactor_output = self.stage2.redact(self.messages, window)
-
-            # Apply masks
-            masked = redactor_output.apply_masks(
-                self.buffer.raw_text,
-                mask_format="[{type}]"
-            )
-
-            events.append({
-                "type": "masked",
-                "num_entities": len(redactor_output.spans),
-                "entities": [
-                    {"text": s.entity_text, "category": s.category.value}
-                    for s in redactor_output.spans
-                ],
-            })
-        else:
-            # No masking needed
-            masked = self.buffer.raw_text
-            events.append({"type": "passed"})
-
-        # 6. Emit and reset
-        emit_text = masked
-        self.buffer.flush(keep_overlap=True)
-        self.any_risk_in_buffer = False  # Always reset flag
-
-        if self.reset_ema_on_stream_break:
-            # Option A: Full reset (recommended)
-            self.risk_state = RiskState(
-                beta=self.risk_state.beta,
-                t_high=self.risk_state.t_high,
-                t_low=self.risk_state.t_low,
-            )
-        else:
-            # Option B: Let decay naturally (for testing)
-            self.risk_state.consecutive_high = 0
-            self.risk_state.is_escalated = False
-
         return (emit_text, events)
 
-    def _check_stream_break(self) -> bool:
+    def _check_stream_break(self, now: float) -> bool:
         """Check if stream break timeout has been reached.
 
         Returns:
@@ -179,7 +129,7 @@ class ExchangePIIGuard:
         if self.last_token_time is None:
             return False
 
-        elapsed = time.time() - self.last_token_time
+        elapsed = now - self.last_token_time
         return elapsed >= self.stream_break_timeout
 
     def force_emit(self) -> tuple[str, list[dict]]:
@@ -194,11 +144,22 @@ class ExchangePIIGuard:
             return ("", [])
 
         events = []
-        events.append({"type": "force_emit"})
+        emit_text = self._emit_buffer(events, reason="force_emit")
+        return (emit_text, events)
 
-        # Run heuristics
+    def _emit_buffer(self, events: list[dict], reason: str) -> str:
+        """Emit current buffer with masking decision and reset state."""
+        events.append({"type": reason})
+
+        # Run heuristics on current buffer
         matches = self.heuristics.detect(self.buffer.raw_text)
         strong_match = self.heuristics.has_strong_match(matches)
+
+        if strong_match:
+            events.append({
+                "type": "heuristic_match",
+                "matches": [m.pattern_name for m in matches],
+            })
 
         # Check current risk state
         is_escalated = self.risk_state.is_escalated
@@ -211,7 +172,6 @@ class ExchangePIIGuard:
         )
 
         if should_mask:
-            # Run Stage 2
             window = self.buffer.get_window_with_overlap()
             redactor_output = self.stage2.redact(self.messages, window)
             masked = redactor_output.apply_masks(
@@ -230,7 +190,6 @@ class ExchangePIIGuard:
             masked = self.buffer.raw_text
             events.append({"type": "passed"})
 
-        # Reset
         emit_text = masked
         self.buffer.flush(keep_overlap=True)
         self.any_risk_in_buffer = False
@@ -245,7 +204,7 @@ class ExchangePIIGuard:
             self.risk_state.consecutive_high = 0
             self.risk_state.is_escalated = False
 
-        return (emit_text, events)
+        return emit_text
 
     def add_user_message(self, content: str):
         """Add user message to conversation history.

@@ -56,12 +56,14 @@ def main():
 
     args = parser.parse_args()
 
-    # Clear log file on startup
+    # Clear log files on startup
     import os
     log_file = "/tmp/gui_debug.log"
-    if os.path.exists(log_file):
-        os.remove(log_file)
-        print(f"✓ Cleared old logs: {log_file}")
+    prompt_log_file = "/tmp/prompt_logs.jsonl"
+    for f in [log_file, prompt_log_file]:
+        if os.path.exists(f):
+            os.remove(f)
+            print(f"✓ Cleared old logs: {f}")
 
     # Create state
     print("=" * 60)

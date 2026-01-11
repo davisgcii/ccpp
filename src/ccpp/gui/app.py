@@ -133,6 +133,7 @@ def on_user_type(current_text: str, state: PIIClientState):
         if not user_input:
             state.risk_history = []
             state.current_char_data = []
+            state.last_classified_len = 0
             return (
                 "",  # user_input_hidden
                 create_risk_html("", []),
@@ -140,14 +141,20 @@ def on_user_type(current_text: str, state: PIIClientState):
                 format_status(),
             )
 
-        # Only classify on word boundaries (spacebar) for performance
-        # This reduces API calls and makes classification more meaningful (words vs characters)
-        last_char = user_input[-1] if user_input else ""
-        should_classify = last_char in (' ', '\n', '\t') or len(user_input) == 1
+        # Handle deletions: if text got shorter, adjust last_classified_len
+        if len(user_input) < state.last_classified_len:
+            state.last_classified_len = len(user_input)
+            logger.debug(f"[on_user_type] Text shortened, reset last_classified_len to {state.last_classified_len}")
 
-        if not should_classify:
-            # Return current state without running classifier
-            logger.debug(f"[on_user_type] Skipping classification (not word boundary)")
+        # Find ALL new spaces since last classification
+        # This handles Gradio batching: if "hello world " arrives as one event,
+        # we'll classify for each space, not just the last character
+        new_portion = user_input[state.last_classified_len:]
+        space_positions = [i + state.last_classified_len for i, c in enumerate(new_portion) if c == " "]
+
+        if not space_positions:
+            # No new spaces, just update visuals without classification
+            logger.debug(f"[on_user_type] No new spaces in: {repr(new_portion)}")
             risk_html = create_risk_html(
                 user_input,
                 state.risk_history,
@@ -160,56 +167,62 @@ def on_user_type(current_text: str, state: PIIClientState):
             )
             return user_input, risk_html, risk_chart, format_status()
 
-        # Process through Stage 1 (on word boundary)
-        logger.info(f"[on_user_type] Classifying at word boundary: {repr(user_input[-20:])}")
-        risk_score = state.stage1.classify(state.conversation, user_input)
-        logger.debug(f"[on_user_type] Stage1 risk_score: {risk_score.score:.3f}, top_category: {risk_score.top_category}")
+        logger.info(f"[on_user_type] Found {len(space_positions)} new space(s) at positions: {space_positions}")
 
-        # Update EMA
-        should_escalate = state.guard.risk_state.update(risk_score.score)
-        ema = state.guard.risk_state.ema_risk  # Get the actual EMA value from state
-        any_risk = bool(risk_score.score >= state.guard.risk_threshold_immediate)
-        logger.debug(f"[on_user_type] EMA updated: {ema:.3f}, should_escalate: {should_escalate}, any_risk: {any_risk}, risk_history_len: {len(state.risk_history)}")
+        # Classify for EACH new space (handles batched input)
+        for space_pos in space_positions:
+            # Get text up to and including this space
+            text_to_classify = user_input[:space_pos + 1]
+            logger.info(f"[on_user_type] Classifying at position {space_pos}: {repr(text_to_classify[-30:])}")
 
-        # CRITICAL: Update guard's flag if this character is high-risk
-        # This flag persists until reset at stream break, tracking if ANY token in buffer was risky
-        if any_risk:
-            state.guard.any_risk_in_buffer = True
-            logger.debug(f"[on_user_type] Set any_risk_in_buffer=True (current char is high-risk)")
+            # Run Stage 1 classification
+            risk_score = state.stage1.classify(state.conversation, text_to_classify)
+            logger.debug(f"[on_user_type] Stage1 risk_score: {risk_score.score:.3f}")
 
-        # Build CharClassification for this character (for tooltip debugging)
-        current_char = user_input[-1] if user_input else ""
-        char_idx = len(user_input) - 1
+            # Update EMA
+            should_escalate = state.guard.risk_state.update(risk_score.score)
+            ema = state.guard.risk_state.ema_risk
+            any_risk = bool(risk_score.score >= state.guard.risk_threshold_immediate)
+            logger.debug(f"[on_user_type] EMA: {ema:.3f}, should_escalate: {should_escalate}, any_risk: {any_risk}")
 
-        # Get classifier prompt (simplified for mock mode)
-        classifier_prompt = state.stage1._format_prompt_with_few_shot(state.conversation, user_input) if hasattr(state.stage1, '_format_prompt_with_few_shot') else []
+            # Update guard's flag if high-risk
+            if any_risk:
+                state.guard.any_risk_in_buffer = True
+                logger.debug(f"[on_user_type] Set any_risk_in_buffer=True")
 
-        char_classification = CharClassification(
-            char=current_char,
-            idx=int(char_idx),
-            risk_score=float(risk_score.score),
-            ema=float(ema),
-            classifier_prompt=classifier_prompt,
-            classifier_response={
-                "p_risk": float(risk_score.score),
-                "p_safe": float(1.0 - risk_score.score),
-                "raw_output": f"RISK {risk_score.score:.3f}",
-            },
-            timestamp=time.time(),
-        )
+            # Build CharClassification for this word boundary
+            classifier_prompt = state.stage1._format_prompt_with_few_shot(state.conversation, text_to_classify) if hasattr(state.stage1, '_format_prompt_with_few_shot') else []
 
-        # Store character data
-        state.current_char_data.append(char_classification)
+            char_classification = CharClassification(
+                char=" ",
+                idx=int(space_pos),
+                risk_score=float(risk_score.score),
+                ema=float(ema),
+                classifier_prompt=classifier_prompt,
+                classifier_response={
+                    "p_risk": float(risk_score.score),
+                    "p_safe": float(1.0 - risk_score.score),
+                    "raw_output": f"RISK {risk_score.score:.3f}",
+                },
+                timestamp=time.time(),
+            )
+            state.current_char_data.append(char_classification)
 
-        # Add to risk history (cast to Python native types for JSON serialization)
-        risk_entry = {
-            'char_idx': int(char_idx),
-            'p_risk': float(risk_score.score),
-            'ema': float(ema),
-            'any_risk': any_risk,  # Already cast to bool above
-        }
-        state.risk_history.append(risk_entry)
-        logger.debug(f"[on_user_type] Added risk_history entry: char_idx={char_idx}, p_risk={risk_score.score:.3f}, ema={ema:.3f}")
+            # Add to risk history
+            risk_entry = {
+                'char_idx': int(space_pos),
+                'p_risk': float(risk_score.score),
+                'ema': float(ema),
+                'any_risk': any_risk,
+            }
+            state.risk_history.append(risk_entry)
+            logger.debug(f"[on_user_type] Added risk_history entry: char_idx={space_pos}, p_risk={risk_score.score:.3f}, ema={ema:.3f}")
+
+        # Update last_classified_len to current buffer length
+        state.last_classified_len = len(user_input)
+
+        # Classification can be slow; update last_input_time after all classifications
+        state.last_input_time = time.time()
 
         # Generate outputs
         risk_html = create_risk_html(
@@ -345,7 +358,8 @@ def check_and_process_buffer(state: PIIClientState):
             # Clear character data and risk history for next buffer
             state.current_char_data = []
             state.risk_history = []  # Reset chart data
-            logger.debug("[check_and_process_buffer] Reset char_data and risk_history for next buffer")
+            state.last_classified_len = 0  # Reset for next buffer
+            logger.debug("[check_and_process_buffer] Reset char_data, risk_history, and last_classified_len for next buffer")
 
             # NOTE: EMA state is NOT reset - it persists across buffers for cross-break detection
             # per CLAUDE.md design. Only reset any_risk_in_buffer flag.
@@ -364,6 +378,7 @@ def check_and_process_buffer(state: PIIClientState):
                     {"role": m["role"], "content": m["content"]}
                     for m in state.conversation
                 ]
+                from ccpp.llm.prompt_logger import log_prompt_event
                 # Make synchronous call to Claude
                 response = state.anthropic.messages.create(
                     model=ApprovedModel.CLAUDE_HAIKU_4_5.value,
@@ -388,6 +403,17 @@ def check_and_process_buffer(state: PIIClientState):
                         "role": "assistant",
                         "content": assistant_text,
                     })
+
+                log_prompt_event(
+                    {
+                        "backend": "anthropic",
+                        "kind": "generate",
+                        "model": ApprovedModel.CLAUDE_HAIKU_4_5.value,
+                        "messages": api_messages,
+                        "response": assistant_text,
+                        "max_tokens": 1024,
+                    }
+                )
 
             except Exception as e:
                 assistant_text = f"[LLM error: {e}]"

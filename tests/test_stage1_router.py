@@ -137,7 +137,7 @@ class TestStage1RouterRealMode:
         assert router.system_prompt == stage1_config["system_prompt"]
         assert len(router.few_shot_examples) == len(stage1_config["few_shot"]["examples"])
         assert router.logit_config.token_a == "SAFE"
-        assert router.logit_config.token_b == "RISK"
+        assert router.logit_config.token_b == "FAIL"
 
 
 class TestStage1RouterIntegration:

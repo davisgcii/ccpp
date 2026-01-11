@@ -1,8 +1,8 @@
 """Stage 1 Router: Fast binary classifier for PII detection.
 
 This module provides per-token risk scoring using logit-based classification.
-For mock mode, returns random scores. In production, will load a fine-tuned
-model and extract P(RISK) from SAFE/RISK token logits.
+For mock mode, returns random scores. In production, uses MLX backend to
+extract P(FAIL) from SAFE/FAIL token logits.
 """
 
 import random
@@ -16,9 +16,9 @@ from ccpp.llm.factory import create_backend_from_config
 class Stage1Router:
     """Stage 1: Lightweight PII risk classifier.
 
-    Mock implementation returns random scores for development/testing.
-    Real implementation will load a fine-tuned model (Qwen2.5-1.5B or similar)
-    and extract P(RISK) from logits.
+    Mock implementation returns heuristic-based scores for development/testing.
+    Real implementation uses MLX backend with Qwen3 to extract P(FAIL) from
+    SAFE/FAIL token logits via sequence log-likelihood.
     """
 
     def __init__(
@@ -45,6 +45,10 @@ class Stage1Router:
         self.few_shot_examples = []  # Legacy: kept for backwards compatibility
         self.system_prompt = ""  # Legacy: kept for backwards compatibility
         self.logit_config = LogitExtractionConfig()
+        self.calibration_enabled = False
+        self.calibration_delta = None
+        self.diagnostic_prompt_mode = "full"
+        self.sequence_loglikelihood_enabled = False
 
         if not mock_mode:
             # Priority: llm_backend > llm_config > model_path
@@ -82,10 +86,23 @@ class Stage1Router:
 
         # Load logit extraction config
         logit_cfg = config.get("logit_extraction", {})
+        generation_cfg = config.get("generation", {})
+        enable_thinking = generation_cfg.get("enable_thinking", config.get("enable_thinking", False))
         self.logit_config = LogitExtractionConfig(
             token_a=logit_cfg.get("token_a", "SAFE"),
-            token_b=logit_cfg.get("token_b", "RISK"),
+            token_b=logit_cfg.get("token_b", "FAIL"),
+            enable_thinking=enable_thinking,
         )
+
+        calibration_cfg = config.get("calibration", {})
+        self.calibration_enabled = calibration_cfg.get("enabled", False)
+        self.calibration_context = calibration_cfg.get("context", [])
+        self.calibration_buffer = calibration_cfg.get("current_buffer", "Hello.")
+        self.diagnostic_prompt_mode = config.get("diagnostic_prompt_mode", "full")
+
+        # Sequence log-likelihood mode
+        seq_ll_cfg = config.get("sequence_loglikelihood", {})
+        self.sequence_loglikelihood_enabled = seq_ll_cfg.get("enabled", False)
 
     def classify(self, messages: list[dict], current_text: str) -> RiskScore:
         """Classify current exchange state for PII risk.
@@ -159,11 +176,79 @@ class Stage1Router:
             logger.debug(f"[Stage1] First message role: {prompt_messages[0].get('role', 'N/A')}")
             logger.debug(f"[Stage1] First message preview: {prompt_messages[0].get('content', '')[:100]}")
 
-        # Extract logit probabilities
-        prob_safe, prob_risk = self.backend.extract_logit_probs(
-            prompt_messages,
-            self.logit_config,
-        )
+        # Sequence log-likelihood mode: compute P(SAFE) vs P(FAIL) as full sequences
+        # This bypasses the <think> token bias issue in Qwen3
+        if self.sequence_loglikelihood_enabled and hasattr(self.backend, "extract_sequence_probs"):
+            logger.info("[Stage1] Using sequence log-likelihood mode")
+            prob_safe, prob_risk = self.backend.extract_sequence_probs(
+                prompt_messages,
+                self.logit_config,
+            )
+            return RiskScore(score=prob_risk, top_category=None)
+
+        # Extract logit probabilities (and optional diagnostics)
+        if self.diagnostic_prompt_mode in ("minimal", "both") and hasattr(self.backend, "extract_logit_data"):
+            minimal_messages = [{
+                "role": "user",
+                "content": (
+                    "Classify the CURRENT BUFFER only. "
+                    "Reply with SAFE or FAIL.\n\n"
+                    f"Current buffer:\n{current_text}\n\n"
+                    "Answer:"
+                ),
+            }]
+            _, _, min_a, min_b = self.backend.extract_logit_data(
+                minimal_messages,
+                self.logit_config,
+            )
+            logger.info("[Stage1] Minimal prompt delta: %.3f", min_b - min_a)
+            if self.diagnostic_prompt_mode == "minimal":
+                prob_safe, prob_risk = self.backend.extract_logit_probs(
+                    minimal_messages,
+                    self.logit_config,
+                )
+                return RiskScore(score=prob_risk, top_category=None)
+
+        if self.diagnostic_prompt_mode == "both" and hasattr(self.backend, "extract_logit_data"):
+            _, _, full_a, full_b = self.backend.extract_logit_data(
+                prompt_messages,
+                self.logit_config,
+            )
+            logger.info("[Stage1] Full prompt delta: %.3f", full_b - full_a)
+
+        if self.calibration_enabled and hasattr(self.backend, "extract_logit_data"):
+            if self.calibration_delta is None:
+                baseline_messages = self._format_prompt_with_few_shot(
+                    self.calibration_context,
+                    self.calibration_buffer,
+                )
+                _, _, base_a, base_b = self.backend.extract_logit_data(
+                    baseline_messages,
+                    self.logit_config,
+                )
+                self.calibration_delta = base_b - base_a
+                logger.info(
+                    "[Stage1] Calibration delta initialized: %.3f",
+                    self.calibration_delta,
+                )
+
+            _, _, logit_a, logit_b = self.backend.extract_logit_data(
+                prompt_messages,
+                self.logit_config,
+            )
+            adjusted_delta = (logit_b - logit_a) - float(self.calibration_delta or 0.0)
+            prob_risk = 1.0 / (1.0 + pow(2.718281828459045, -adjusted_delta))
+            prob_safe = 1.0 - prob_risk
+            logger.info(
+                "[Stage1] Adjusted delta: %.3f (raw delta: %.3f)",
+                adjusted_delta,
+                logit_b - logit_a,
+            )
+        else:
+            prob_safe, prob_risk = self.backend.extract_logit_probs(
+                prompt_messages,
+                self.logit_config,
+            )
 
         return RiskScore(score=prob_risk, top_category=None)
 
@@ -277,33 +362,3 @@ class Stage1Router:
 ```
 ---"""
 
-    def _format_prompt(self, messages: list[dict], current_text: str) -> str:
-        """Format prompt for model (exchange-aware).
-
-        Args:
-            messages: Conversation history
-            current_text: Current buffer text
-
-        Returns:
-            Formatted prompt string
-        """
-        # TODO: Implement proper prompt formatting for your model
-        # This will depend on the model's chat template
-        prompt_parts = []
-
-        # Add conversation history
-        for msg in messages:
-            role = msg["role"]
-            content = msg["content"]
-            prompt_parts.append(f"{role.capitalize()}: {content}")
-
-        # Add current text (partial assistant response)
-        if current_text:
-            prompt_parts.append(f"Assistant: {current_text}")
-
-        # Add classification question
-        prompt_parts.append(
-            "\nDoes the assistant response contain or is likely to contain PII/sensitive information?"
-        )
-
-        return "\n".join(prompt_parts)

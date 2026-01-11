@@ -39,6 +39,8 @@ class TestGenerationConfig:
         assert config.max_tokens == 100
         assert config.temperature == 0.0
         assert config.top_p == 1.0
+        assert config.top_k is None
+        assert config.min_p is None
         assert config.do_sample is False
         assert config.stop_sequences == []
 
@@ -48,12 +50,16 @@ class TestGenerationConfig:
             max_tokens=200,
             temperature=0.7,
             top_p=0.9,
+            top_k=50,
+            min_p=0.05,
             do_sample=True,
             stop_sequences=["\n", "STOP"],
         )
         assert config.max_tokens == 200
         assert config.temperature == 0.7
         assert config.top_p == 0.9
+        assert config.top_k == 50
+        assert config.min_p == 0.05
         assert config.do_sample is True
         assert config.stop_sequences == ["\n", "STOP"]
 
@@ -65,13 +71,15 @@ class TestLogitExtractionConfig:
         """Test default logit extraction config."""
         config = LogitExtractionConfig()
         assert config.token_a == "SAFE"
-        assert config.token_b == "RISK"
+        assert config.token_b == "FAIL"
+        assert config.enable_thinking is False
 
     def test_custom_tokens(self):
         """Test custom tokens."""
         config = LogitExtractionConfig(token_a="YES", token_b="NO")
         assert config.token_a == "YES"
         assert config.token_b == "NO"
+        assert config.enable_thinking is False
 
 
 class TestOllamaBackend:
@@ -152,21 +160,21 @@ class TestOllamaBackend:
         assert prob_risk == 0.0
 
     @patch('ollama.Client')
-    def test_ollama_extract_logit_probs_risk(self, mock_client_class):
+    def test_ollama_extract_logit_probs_fail(self, mock_client_class):
         """Test logit extraction for risky content."""
         mock_client = MagicMock()
         mock_client.list.return_value = _create_mock_list_response([ApprovedModel.QWEN3_1_7B.value])
-        mock_client.chat.return_value = {"message": {"content": "RISK"}}
+        mock_client.chat.return_value = {"message": {"content": "FAIL"}}
         mock_client_class.return_value = mock_client
 
         backend = OllamaBackend(model_name=ApprovedModel.QWEN3_1_7B.value)
-        prob_safe, prob_risk = backend.extract_logit_probs(
+        prob_safe, prob_fail = backend.extract_logit_probs(
             [{"role": "user", "content": "My email is test@test.com"}],
             LogitExtractionConfig(),
         )
 
         assert prob_safe == 0.0
-        assert prob_risk == 1.0
+        assert prob_fail == 1.0
 
 
 class TestAnthropicBackend:

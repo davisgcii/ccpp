@@ -128,18 +128,6 @@ class TestLoadConfig:
         assert hasattr(config, "streaming")
         assert hasattr(config, "heuristics")
 
-    def test_load_dev_config(self):
-        """Test loading dev config."""
-        config = load_config(environment="dev")
-        assert config.stage1.backend == "ollama"
-        assert config.stage1.timeout == 30  # Dev override
-
-    def test_load_prod_config(self):
-        """Test loading prod config."""
-        config = load_config(environment="prod")
-        assert config.stage1.backend == "anthropic"
-        assert config.stage2.backend == "anthropic"
-
     def test_load_with_overrides(self):
         """Test loading with runtime overrides."""
         config = load_config(
@@ -159,12 +147,6 @@ class TestLoadConfig:
         config = load_config(environment="nonexistent")
         # Should not raise, just use default
         assert hasattr(config, "stage1")
-
-    def test_load_with_env_var(self):
-        """Test loading respects CCPP_ENV environment variable."""
-        with patch.dict(os.environ, {"CCPP_ENV": "dev"}):
-            config = load_default_config()
-            assert config.stage1.timeout == 30  # Dev override
 
 
 class TestConfigExtractors:

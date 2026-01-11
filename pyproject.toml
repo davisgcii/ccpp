@@ -62,11 +62,4 @@ target-version = "py310"
 select = ["E", "F", "I", "W"]
 
 [project.scripts]
-ccpp-generate = "scripts.generate_data:main"
-ccpp-augment = "scripts.augment:main"
-ccpp-train = "scripts.train:main"
-ccpp-eval = "scripts.eval:main"
-ccpp-demo = "scripts.demo_guard:main"
-ccpp-chat = "scripts.interactive:main"
-ccpp-chat-live = "scripts.interactive_realtime:main"
 ccpp-gui = "scripts.gui_client:main"

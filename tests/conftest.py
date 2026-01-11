@@ -64,7 +64,7 @@ def stage1_config() -> Dict:
         },
         "logit_extraction": {
             "token_a": "SAFE",
-            "token_b": "RISK",
+            "token_b": "FAIL",
         },
         "few_shot": {
             "enabled": True,
@@ -78,11 +78,11 @@ def stage1_config() -> Dict:
                 {
                     "messages": [],
                     "current_buffer": "My email is test@example.com",
-                    "label": "RISK",
+                    "label": "FAIL",
                 },
             ],
         },
-        "system_prompt": "You are a PII classifier. Respond SAFE or RISK.",
+        "system_prompt": "You are a PII classifier. Respond SAFE or FAIL.",
     }
 
 
@@ -140,4 +140,4 @@ def generation_config() -> GenerationConfig:
 @pytest.fixture
 def logit_extraction_config() -> LogitExtractionConfig:
     """Sample logit extraction config."""
-    return LogitExtractionConfig(token_a="SAFE", token_b="RISK")
+    return LogitExtractionConfig(token_a="SAFE", token_b="FAIL")

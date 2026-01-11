@@ -33,6 +33,8 @@ class GenerationConfig:
     max_tokens: int = 100
     temperature: float = 0.0
     top_p: float = 1.0
+    top_k: Optional[int] = None
+    min_p: Optional[float] = None
     stop_sequences: Optional[list[str]] = None
     do_sample: bool = False
     enable_thinking: bool = False  # Qwen3-specific: disable for classification
@@ -47,14 +49,15 @@ class LogitExtractionConfig:
     """Configuration for logit-based classification.
 
     For binary classification, we extract probabilities for two tokens
-    (e.g., "SAFE" and "RISK") from the model's output logits.
+    (e.g., "SAFE" and "FAIL") from the model's output logits.
 
     Attributes:
         token_a: First class token (e.g., "SAFE")
-        token_b: Second class token (e.g., "RISK")
+        token_b: Second class token (e.g., "FAIL")
     """
     token_a: str = "SAFE"
-    token_b: str = "RISK"
+    token_b: str = "FAIL"
+    enable_thinking: bool = False
 
 
 class LLMBackend(ABC):

@@ -4,13 +4,20 @@ A CC++-inspired streaming exchange classifier for PII detection and masking in b
 
 ## ⚠️ Project Status
 
-**ACTIVE DEVELOPMENT** - Core pipeline implemented but currently has **critical bugs** preventing full functionality:
+**ACTIVE DEVELOPMENT** - Core pipeline implemented with working two-stage cascade:
 
-🔴 **Critical Issues**:
-1. **Stage 1 Classification**: Model returns FAIL=1.0 for all inputs (including benign text)
-2. **Stage 2 Masking**: Model returns PASS instead of extracting/masking entities
+✅ **Working**:
+- Stage 1 classification using sequence log-likelihood with batched prefilling
+- Stage 2 entity extraction with MLX text generation
+- GUI client with real-time visualization
+- Fast heuristics (regex patterns)
 
-See [TODO.md](TODO.md) for detailed issue tracking and troubleshooting progress.
+⏸️ **Not Started**:
+- Training data generation
+- Model fine-tuning
+- Evaluation and calibration
+
+See [TODO.md](TODO.md) for detailed progress tracking.
 
 ## Overview
 

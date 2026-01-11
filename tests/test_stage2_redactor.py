@@ -68,7 +68,7 @@ class TestStage2RedactorMockMode:
         output = redactor.redact([], text)
 
         if len(output.spans) > 0:
-            masked_text = redactor.apply_masks(text, output)
+            masked_text = output.apply_masks(text)
             assert "john@test.com" not in masked_text
             assert "[PII/DIRECT]" in masked_text
 
@@ -238,3 +238,13 @@ class TestStage2RedactorIntegration:
 
         assert len(output.spans) == 1
         assert output.spans[0].entity_text == "John Doe"
+
+    def test_parse_escaped_quotes(self):
+        """Test parsing entities with escaped quotes."""
+        redactor = Stage2Redactor(mock_mode=True)
+
+        output_str = 'MASK "John ""Johnny"" Doe" pii/direct'
+        output = redactor._parse_extraction_output(output_str)
+
+        assert len(output.spans) == 1
+        assert output.spans[0].entity_text == 'John "Johnny" Doe'

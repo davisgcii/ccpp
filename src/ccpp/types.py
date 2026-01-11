@@ -91,86 +91,21 @@ class PIICategory(Enum):
 class RiskScore:
     """Output from Stage 1 risk router.
 
-    Stage 1 uses logit-based classification: we extract P(RISK) from the
-    softmax over SAFE/RISK token logits. This is much faster than generating
+    Stage 1 uses logit-based classification: we extract P(FAIL) from the
+    softmax over SAFE/FAIL token logits. This is much faster than generating
     tokens (single forward pass vs 3-6 passes).
 
     The score is a calibrated probability indicating likelihood of PII/sensitive
     info in the current exchange window.
     """
 
-    score: float  # 0.0 = safe, 1.0 = definitely contains PII (P(RISK) from logits)
+    score: float  # 0.0 = safe, 1.0 = definitely contains PII (P(FAIL) from logits)
     top_category: Optional[PIICategory] = None  # Not used in logit-based approach
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.score <= 1.0:
             raise ValueError(f"Risk score must be in [0, 1], got {self.score}")
 
-    def to_string(self) -> str:
-        """Serialize to plain text format (for debugging/logging).
-
-        Note: In production, Stage 1 returns the score directly from logits,
-        not as generated text. This method is mainly for test/debug purposes.
-        """
-        if self.top_category and self.top_category != PIICategory.SAFE:
-            return f"RISK {self.score:.2f} top={self.top_category.value}"
-        return f"RISK {self.score:.2f}"
-
-    @classmethod
-    def from_logits(cls, logits: "torch.Tensor", tokenizer: "Tokenizer") -> "RiskScore":
-        """Extract risk score from model logits (primary method).
-
-        Args:
-            logits: Model logits for the last position, shape (vocab_size,)
-            tokenizer: Tokenizer to get SAFE/RISK token IDs
-
-        Returns:
-            RiskScore with P(RISK) extracted from softmax
-        """
-        import torch
-
-        # Get token IDs for SAFE and RISK
-        safe_id = tokenizer.encode("SAFE", add_special_tokens=False)[0]
-        risk_id = tokenizer.encode("RISK", add_special_tokens=False)[0]
-
-        # Extract logits for these two tokens
-        safe_logit = logits[safe_id]
-        risk_logit = logits[risk_id]
-
-        # Softmax to get probabilities
-        probs = torch.softmax(torch.tensor([safe_logit, risk_logit]), dim=0)
-        risk_prob = probs[1].item()
-
-        return cls(score=risk_prob, top_category=None)
-
-    @classmethod
-    def from_string(cls, s: str) -> "RiskScore":
-        """Parse from plain text output (for testing/backwards compat).
-
-        Expected formats:
-            RISK 0.73
-            RISK 0.73 top=credentials
-        """
-        s = s.strip()
-        if not s.upper().startswith("RISK"):
-            raise ValueError(f"Expected 'RISK ...' format, got: {s}")
-
-        parts = s.split()
-        if len(parts) < 2:
-            raise ValueError(f"Expected 'RISK <score>', got: {s}")
-
-        try:
-            score = float(parts[1])
-        except ValueError:
-            raise ValueError(f"Invalid risk score: {parts[1]}")
-
-        top_category = None
-        for part in parts[2:]:
-            if part.startswith("top="):
-                cat_str = part[4:]
-                top_category = PIICategory.from_string(cat_str)
-
-        return cls(score=score, top_category=top_category)
 
 
 # -----------------------------------------------------------------------------
@@ -297,7 +232,12 @@ class RedactorOutput:
             return text
 
         result = text
-        for span in self.spans:
+        spans = sorted(self.spans, key=lambda s: len(s.entity_text), reverse=True)
+        seen = set()
+        for span in spans:
+            if span.entity_text in seen:
+                continue
+            seen.add(span.entity_text)
             replacement = mask_format.format(type=span.category.value.upper())
 
             # Check if entity exists in text

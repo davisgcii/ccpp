@@ -92,14 +92,14 @@ Integration tests use minimal tokens to keep costs low.
 
 ```
 tests/
+├── conftest.py               # Shared fixtures
 ├── test_heuristics.py        # Fast heuristics (unit)
-├── test_llm_harness.py        # LLM backends (unit, mocked)
-├── test_stage1_router.py      # Stage 1 classifier (unit)
-├── test_stage2_redactor.py    # Stage 2 redactor (unit)
-├── test_types.py              # Type definitions (unit)
-├── test_config.py             # Configuration (unit)
-├── test_integration.py        # Integration tests (requires services)
-└── test_e2e.py                # End-to-end pipeline (future)
+├── test_llm_harness.py       # LLM backends (unit, mocked)
+├── test_stage1_router.py     # Stage 1 classifier (unit)
+├── test_stage2_redactor.py   # Stage 2 redactor (unit)
+├── test_types.py             # Type definitions (unit)
+├── test_config.py            # Configuration (unit)
+└── test_integration.py       # Integration tests (requires services)
 ```
 
 ## Writing Tests

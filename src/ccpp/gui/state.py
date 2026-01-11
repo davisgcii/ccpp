@@ -89,6 +89,7 @@ class PIIClientState:
         self.processed_buffer = ""  # Last buffer sent to LLM
         self.is_processing = False  # Currently processing/waiting for LLM
         self.should_interrupt = False  # User typed during LLM response
+        self.last_classified_len = 0  # Length of buffer when we last classified
 
         # GUI debugging metadata (for hover tooltips)
         self.current_char_data: list[CharClassification] = []  # Per-char for current buffer
@@ -112,6 +113,7 @@ class PIIClientState:
             self.processed_buffer = ""
             self.is_processing = False
             self.should_interrupt = False
+            self.last_classified_len = 0
             self.current_char_data = []
             self.current_buffer_metadata = None
             self.guard.reset()
@@ -150,6 +152,9 @@ class PIIClientState:
             # Check if buffer already processed
             if self.buffer == self.processed_buffer:
                 logger.debug(f"[should_process_buffer] Buffer already processed ('{self.buffer[:30]}...'), returning False")
+                return False
+            if not self.buffer[-1].isspace():
+                logger.debug("[should_process_buffer] Buffer not at word boundary, returning False")
                 return False
 
             # Check if enough time has passed

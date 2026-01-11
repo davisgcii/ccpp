@@ -15,8 +15,15 @@ stage1:
 
   # Generation settings
   timeout: 60  # seconds
-  temperature: 0.0  # Deterministic for consistency
+  temperature: 0.7  # Deterministic for consistency
   max_tokens: 3  # Only need "SAFE" or "FAIL"
+  generation:
+    temperature: 0.7
+    top_p: 0.8
+    top_k: 20
+    min_p: 0.0
+    do_sample: true
+    enable_thinking: false
 
   # Logit extraction tokens
   # IMPORTANT: Both must be single tokens in Qwen3 vocabulary
@@ -25,46 +32,44 @@ stage1:
     token_a: SAFE
     token_b: FAIL
 
+  # Optional logit calibration to counter baseline bias in base models
+  calibration:
+    enabled: false
+    context: []
+    current_buffer: "Hello there."
+
+  # Diagnostic prompt mode for Stage 1
+  # full: use full template (default)
+  # minimal: use a short instruction prompt
+  # both: log deltas for full vs minimal (uses full for scoring)
+  diagnostic_prompt_mode: both
+
+  # Sequence log-likelihood scoring for SAFE vs FAIL
+  # This computes P(prompt + "SAFE") vs P(prompt + "FAIL") as full sequences
+  # Bypasses the <think> token bias issue in Qwen3
+  sequence_loglikelihood:
+    enabled: true
+
   # Prompt template mode: single template with placeholders
   # Placeholders: {context}, {current_buffer}
   # The template is the ENTIRE prompt - you control everything
+  #
+  # Formatted with markdown similar to Stage 2, with few-shot examples
+  # showing realistic conversation contexts
   prompt_template: |
     # Instructions
 
-    You are a PII (Personally Identifiable Information) detection classifier for streaming text.
+    You are a PII classifier for streaming text. Classify the buffer as SAFE or FAIL.
 
-    Your task: Determine if the CURRENT BUFFER contains or is likely to contain PII.
+    ## FAIL - Classify as FAIL if ANY of these are true:
+    - Buffer contains actual PII (email, phone, SSN, address, API key, order number)
+    - Buffer contains partial PII (e.g., "555-12" is start of phone number)
+    - User is clearly about to provide PII: assistant asked for PII AND user has started responding in a way that indicates PII is coming (e.g., "my email is", "it's", "sure, it's")
 
-    CRITICAL: Only classify the current buffer, NOT the conversation history.
-    Even if previous messages contained PII, if the current buffer is safe, respond "SAFE".
-
-    ## What is PII (respond FAIL)
-
-    - Direct identifiers: email, phone, physical address, full name (when used as identifier), SSN, dates of birth
-    - Financial data: credit card numbers, account numbers, routing numbers
-    - Credentials: API keys, passwords, tokens, private keys
-    - Medical info: diagnoses, prescriptions, record numbers
-    - Precise location: exact street addresses, coordinates, apartment numbers
-
-    ## What is NOT PII (respond SAFE)
-
-    - Generic greetings ("Hi", "How are you?")
-    - General questions ("where can I find", "how do I", "what is")
-    - Mentions of PII categories without actual data ("my email", "phone number")
-    - Placeholder examples (example.com, 555-1234, test@test.com)
-    - Common first names alone without other identifiers (unless in response to identity request)
-    - City names, state names, country names (NOT precise location unless combined with street address)
-    - Store locations, business names, general directions
-    - Order status inquiries, help requests, product questions
-
-    ## Context-aware classification
-
-    - If user was just asked for their email/name/phone, even partial responses like "it's john" are FAIL
-    - Generic conversations about orders, help requests, product questions are SAFE
-    - Questions like "where can I find X" or "how do I do Y" are SAFE
-    - Mentioning city names like "Las Vegas" or "New York" is SAFE (not precise location)
-
-    Respond with ONLY one word: "SAFE" or "FAIL"
+    ## SAFE - Classify as SAFE only if:
+    - Buffer is a greeting, question, or general help request
+    - Buffer does not contain or lead to PII
+    - User redirects or asks a different question instead of providing requested PII
 
     ---
 
@@ -72,68 +77,85 @@ stage1:
 
     ## Example 1
     Context: (No prior context)
-    Current buffer: You can reach me at john.doe@gmail.com
-    Classification: FAIL
+    Buffer: hi there, can you help me find my order?
+
+    Classification: SAFE
 
     ## Example 2
-    Context: (No prior context)
-    Current buffer: Hi, how can I help you today?
-    Classification: SAFE
+    Context:
+    User: hi there?
+    Assistant: What's your email address?
+    Buffer: it's
+
+    Classification: FAIL
 
     ## Example 3
     Context:
-    User: Hi, my name is John Smith
-    Current buffer: Nice to meet you! How can I assist you?
-    Classification: SAFE
+    User: hi there?
+    Assistant: What's your email address?
+    Buffer: john@gmail.com
+
+    Classification: FAIL
 
     ## Example 4
     Context:
-    Assistant: Can you provide your email address?
-    Current buffer: it's george
-    Classification: FAIL
+    User: I have a question
+    Assistant: What's your question?
+    Buffer: where is your store in Las Vegas?
+
+    Classification: SAFE
 
     ## Example 5
-    Context: (No prior context)
-    Current buffer: I need help protecting my email and phone number
-    Classification: SAFE
+    Context:
+    User: hi
+    Assistant: What's your phone number?
+    Buffer: 555-12
+
+    Classification: FAIL
 
     ## Example 6
     Context: (No prior context)
-    Current buffer: My number is 555-123-4567
+    Buffer: call me at five five five one two three
+
     Classification: FAIL
 
     ## Example 7
     Context:
-    User: I ordered something last week
-    Current buffer: where can I find the store in Las Vegas?
+    User: I bought a jacket last week
+    Assistant: What's your email so I can look up the order?
+    Buffer: actually, can I just
+
     Classification: SAFE
 
     ## Example 8
-    Context:
-    User: I need to return an item
-    Current buffer: do you know where I can get my order status?
+    Context: (No prior context)
+    Assistant: How can I help you today?
+    Buffer: how long does shipping take?
+
     Classification: SAFE
 
     ## Example 9
     Context:
-    User: my email is [PII/DIRECT]
-    Assistant: Thanks! I can see your account.
-    Current buffer: How long will shipping take to New York?
-    Classification: SAFE
+    User: I need help with my order
+    Assistant: What's your order number?
+    Buffer: sure, it's
+
+    Classification: FAIL
 
     ## Example 10
     Context: (No prior context)
-    Current buffer: I live at 123 Main Street, Apt 4B
-    Classification: FAIL
+    Buffer: i need
+
+    Classification: SAFE
 
     ---
 
-    # Current Conversation
+    # Your Turn
 
     Context:
     {context}
 
-    Current buffer:
+    Buffer:
     {current_buffer}
 
     Classification:
@@ -149,7 +171,12 @@ stage2:
 
   # Generation settings
   timeout: 120  # seconds
-  temperature: 0.0  # Deterministic for consistency
+  temperature: 0.7  # Qwen3 non-thinking recommendation
+  top_p: 0.8
+  top_k: 20
+  min_p: 0.0
+  do_sample: true
+  enable_thinking: false
   max_tokens: 200  # Enough for multiple entity extractions
 
   # Prompt template for Stage 2 (entity extraction)

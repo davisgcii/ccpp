@@ -97,13 +97,31 @@ class Stage2Redactor:
 
         # Load generation config
         gen_cfg = config.get("generation", {})
+        if not gen_cfg:
+            gen_cfg = {
+                "max_tokens": config.get("max_tokens"),
+                "temperature": config.get("temperature"),
+                "top_p": config.get("top_p"),
+                "top_k": config.get("top_k"),
+                "min_p": config.get("min_p"),
+                "stop_sequences": config.get("stop_sequences"),
+                "do_sample": config.get("do_sample"),
+                "enable_thinking": config.get("enable_thinking"),
+            }
+
+        def _pick(cfg: dict, key: str, default):
+            value = cfg.get(key)
+            return default if value is None else value
+
         self.generation_config = GenerationConfig(
-            max_tokens=gen_cfg.get("max_tokens", 150),
-            temperature=gen_cfg.get("temperature", 0.0),
-            top_p=gen_cfg.get("top_p", 1.0),
-            stop_sequences=gen_cfg.get("stop_sequences", []),
-            do_sample=gen_cfg.get("do_sample", False),
-            enable_thinking=gen_cfg.get("enable_thinking", False),
+            max_tokens=_pick(gen_cfg, "max_tokens", 150),
+            temperature=_pick(gen_cfg, "temperature", 0.0),
+            top_p=_pick(gen_cfg, "top_p", 1.0),
+            top_k=_pick(gen_cfg, "top_k", None),
+            min_p=_pick(gen_cfg, "min_p", None),
+            stop_sequences=_pick(gen_cfg, "stop_sequences", []),
+            do_sample=_pick(gen_cfg, "do_sample", False),
+            enable_thinking=_pick(gen_cfg, "enable_thinking", False),
         )
 
     def redact(self, messages: list[dict], window_text: str) -> RedactorOutput:
@@ -345,12 +363,12 @@ class Stage2Redactor:
         # Pattern: MASK "entity_text" category
         # Handles quoted strings with escaping
         mask_pattern = re.compile(
-            r'MASK\s+"([^"]+)"\s+(\S+)',
+            r'MASK\s+"((?:[^"]|"")*)"\s+(\S+)',
             re.IGNORECASE
         )
 
         for match in mask_pattern.finditer(output):
-            entity_text = match.group(1)
+            entity_text = match.group(1).replace('""', '"')
             category_str = match.group(2).lower().replace("-", "_")
 
             # Map category string to PIICategory enum
@@ -377,42 +395,3 @@ class Stage2Redactor:
 
         return RedactorOutput(spans=spans)
 
-    def _format_prompt(self, messages: list[dict], window_text: str) -> str:
-        """Format prompt for model.
-
-        Args:
-            messages: Conversation history
-            window_text: Text to extract entities from
-
-        Returns:
-            Formatted prompt string
-        """
-        # TODO: Implement proper prompt formatting
-        prompt_parts = []
-
-        # Add conversation history
-        for msg in messages:
-            role = msg["role"]
-            content = msg["content"]
-            prompt_parts.append(f"{role.capitalize()}: {content}")
-
-        # Add extraction instructions
-        prompt_parts.append(
-            "\nExtract all PII/sensitive entities from the text. "
-            'Output format: MASK "entity" category'
-        )
-        prompt_parts.append(f"\nWindow text: {window_text}")
-
-        return "\n".join(prompt_parts)
-
-    def apply_masks(self, text: str, output: RedactorOutput) -> str:
-        """Apply masks to text (delegates to RedactorOutput.apply_masks()).
-
-        Args:
-            text: Original text
-            output: RedactorOutput with mask spans
-
-        Returns:
-            Text with entities masked
-        """
-        return output.apply_masks(text, mask_format="[{type}]")

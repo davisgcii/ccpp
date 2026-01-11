@@ -133,6 +133,18 @@ class TestRedactorOutput:
         assert result.count("[PII/DIRECT]") == 1
         assert "john" in result  # lowercase should remain
 
+    def test_apply_masks_prefers_longer_entities(self):
+        """Test that longer entities are masked first."""
+        spans = [
+            MaskSpan(entity_text="george", category=PIICategory.PII_DIRECT),
+            MaskSpan(entity_text="george@gmail.com", category=PIICategory.PII_DIRECT),
+        ]
+        output = RedactorOutput(spans=spans)
+        text = "Contact george@gmail.com for help."
+        result = output.apply_masks(text)
+        assert "[PII/DIRECT]" in result
+        assert "george@gmail.com" not in result
+
 
 class TestHoldbackBuffer:
     """Tests for HoldbackBuffer."""

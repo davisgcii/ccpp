@@ -13,10 +13,10 @@ CC++ uses a hierarchical YAML-based configuration system that supports:
 
 ```
 configs/
-├── default.yaml    # Base configuration (always loaded)
-├── dev.yaml        # Development overrides
-└── prod.yaml       # Production overrides
+└── default.yaml    # Base configuration (MLX backend)
 ```
+
+**Note**: Additional environment-specific configs (dev.yaml, prod.yaml) can be created as needed.
 
 ## Loading Configuration
 
@@ -49,10 +49,7 @@ Set `CCPP_ENV` to automatically load environment-specific config:
 
 ```bash
 export CCPP_ENV=dev
-python scripts/demo_guard.py  # Automatically uses dev.yaml
-
-export CCPP_ENV=prod
-python scripts/demo_guard.py  # Automatically uses prod.yaml
+uv run python scripts/gui_client.py  # Automatically uses dev.yaml if it exists
 ```
 
 ### Using with Components
@@ -83,28 +80,27 @@ redactor = Stage2Redactor(
 
 ```yaml
 stage1:
-  backend: ollama              # Backend: "ollama", "anthropic", "openai"
-  model_name: qwen3:1.7b       # Model identifier
+  backend: mlx                 # Backend: "mlx", "ollama", "anthropic", "openai"
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # Model identifier
   timeout: 60                  # Request timeout (seconds)
-  temperature: 0.0             # Sampling temperature (0 = deterministic)
-  max_tokens: 5                # Max tokens to generate
-  token_a: SAFE                # Token for safe classification
-  token_b: RISK                # Token for risk classification
-  system_prompt: "..."         # Optional system prompt
-  few_shot_examples: []        # Optional few-shot examples
+  temperature: 0.7             # Sampling temperature
+  max_tokens: 3                # Max tokens to generate
+  logit_extraction:
+    token_a: SAFE              # Token for safe classification
+    token_b: FAIL              # Token for risk classification (single token)
+  prompt_template: "..."       # Prompt template with {context} and {current_buffer}
 ```
 
 ### Stage 2: Entity Redactor
 
 ```yaml
 stage2:
-  backend: ollama              # Backend: "ollama", "anthropic", "openai"
-  model_name: qwen3:4b         # Model identifier (typically larger)
+  backend: mlx                 # Backend: "mlx", "ollama", "anthropic", "openai"
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # Model identifier
   timeout: 120                 # Request timeout (seconds)
-  temperature: 0.0             # Sampling temperature
+  temperature: 0.7             # Sampling temperature
   max_tokens: 200              # Max tokens for entity extractions
-  system_prompt: "..."         # Optional system prompt
-  few_shot_examples: []        # Optional few-shot examples
+  prompt_template: "..."       # Prompt template with {context} and {window_text}
 ```
 
 ### Streaming Parameters
@@ -158,26 +154,19 @@ masking:
 
 ## Environment-Specific Overrides
 
-### Development (`dev.yaml`)
+You can create environment-specific override files (e.g., `dev.yaml`, `prod.yaml`) that override `default.yaml`.
 
-Optimized for local development:
+### Example Development Override (`dev.yaml`)
 
 ```yaml
-stage1:
-  backend: ollama
-  model_name: qwen3:1.7b
-  timeout: 30                      # Faster timeout for dev
-
 streaming:
-  stream_break_timeout_ms: 300     # Faster breaks for testing
+  stream_break_timeout_ms: 500     # Faster breaks for testing
 
 logging:
   level: DEBUG                     # Verbose logging
 ```
 
-### Production (`prod.yaml`)
-
-Optimized for production with cloud APIs:
+### Example Production Override (`prod.yaml`)
 
 ```yaml
 stage1:
@@ -209,7 +198,7 @@ export CCPP_STREAMING__T_HIGH=0.7
 export CCPP_STREAMING__EMA_BETA=0.9
 
 # Run with overrides
-python scripts/demo_guard.py
+uv run python scripts/gui_client.py
 ```
 
 **Syntax**: `CCPP_<section>__<key>=<value>`
@@ -219,25 +208,27 @@ python scripts/demo_guard.py
 
 ## Common Configuration Patterns
 
-### Local Development (Ollama)
+### Local Development (MLX - Default)
+
+The default configuration uses MLX backend for Apple Silicon:
 
 ```yaml
-# configs/dev.yaml
+# configs/default.yaml (current)
 stage1:
-  backend: ollama
-  model_name: qwen3:1.7b
-  timeout: 30
+  backend: mlx
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit
 
 stage2:
-  backend: ollama
-  model_name: qwen3:4b
-  timeout: 60
+  backend: mlx
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit
 ```
 
 ### Production (Cloud APIs)
 
+For production with cloud APIs, create a `prod.yaml` override:
+
 ```yaml
-# configs/prod.yaml
+# configs/prod.yaml (create as needed)
 stage1:
   backend: anthropic
   model_name: claude-haiku-4-5-20251001   # Fast Haiku for Stage 1
@@ -247,43 +238,26 @@ stage2:
   model_name: claude-sonnet-4-5-20250929  # Accurate Sonnet for Stage 2
 ```
 
-### Hybrid (Local Stage 1, Cloud Stage 2)
-
-```yaml
-# configs/hybrid.yaml
-stage1:
-  backend: ollama
-  model_name: qwen3:1.7b            # Fast local classification
-
-stage2:
-  backend: anthropic
-  model_name: claude-sonnet-4-5-20250929  # Accurate cloud redaction
-```
-
 ### Aggressive PII Detection
 
+Override thresholds for higher sensitivity:
+
 ```yaml
-# configs/aggressive.yaml
 streaming:
   t_high: 0.4                       # Lower threshold (more sensitive)
   t_low: 0.2
   risk_threshold: 0.5               # Lower risk threshold
-
-heuristics:
-  strong_match_confidence: 0.8      # Lower confidence for escalation
 ```
 
 ### Conservative PII Detection
 
+Override thresholds for lower sensitivity:
+
 ```yaml
-# configs/conservative.yaml
 streaming:
   t_high: 0.8                       # Higher threshold (less sensitive)
   t_low: 0.5
   risk_threshold: 0.85
-
-heuristics:
-  enabled: false                    # Disable fast heuristics (model-only)
 ```
 
 ### Voice Conversation Tuning
@@ -373,7 +347,7 @@ config = load_config(environment="staging")
 Or:
 ```bash
 export CCPP_ENV=staging
-python scripts/demo_guard.py
+uv run python scripts/gui_client.py
 ```
 
 ### Create User-Specific Config
