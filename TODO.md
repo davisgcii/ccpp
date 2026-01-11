@@ -304,14 +304,19 @@ Each record should include:
 - [x] Implement `scripts/client.py` (basic CLI debugging client)
 - [x] Implement GUI interactive client (`src/ccpp/gui/` + `scripts/gui_client.py`):
   - [x] Gradio-based pop-up window with real-time visualization
+  - [x] **Terminal aesthetic** (dark theme, monospace, green text)
   - [x] State management with thread safety (`state.py`)
   - [x] Chart and HTML components (`components.py`)
   - [x] Main application and event handlers (`app.py`)
-  - [x] Real-time risk chart with P(RISK), EMA, and threshold lines
+  - [x] **ASCII art risk chart** (box-drawing chars, no Plotly dependency)
+    - [x] P(RISK) shown as blue dots (●)
+    - [x] EMA shown as blocks (█) - green when safe, red when escalated
+    - [x] Threshold lines: T_high (┈) and T_low (·)
   - [x] Visual risk indicators (red highlights under risky characters)
   - [x] Stream break detection (timer-based, 3s default)
   - [x] Side-by-side original vs masked comparison
   - [x] LLM integration with interruption handling
+  - [x] Terminal-style UI with box-drawing characters and status symbols
 - [x] Update `CLAUDE.md` with:
   - [x] Per-token architecture diagram
   - [x] Detailed conversation example with 18 turns
