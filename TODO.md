@@ -73,7 +73,7 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
   - [ ] User input capture with space-to-start
   - [ ] Stream user input through ExchangePIIGuard
   - [ ] Configurable user timeout (default 3s) for stream breaks
-  - [ ] Real-time risk meter display (P(RISK), EMA, any_risk_in_buffer)
+  - [ ] Real-time risk meter display (P(RISK), EMA, any_risk_in_buffer) - show as running chart on the bottom with a line or indicator for each
   - [ ] Send masked user utterance to LLM API (Anthropic Claude)
   - [ ] Stream LLM response back to user (unmasked for now)
   - [ ] Display conversation history with masking indicators
