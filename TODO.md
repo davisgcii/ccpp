@@ -68,19 +68,35 @@ This TODO implements a CC++-style **exchange classifier cascade** for **streamin
   - [x] Interactive mode (`-i` flag)
   - [ ] TODO: Integrate with actual base model API streaming
 
-### Interactive client (real-time user testing)
-- [ ] `scripts/client.py`:
-  - [ ] User input capture with space-to-start
-  - [ ] Stream user input through ExchangePIIGuard
-  - [ ] Configurable user timeout (default 3s) for stream breaks
-  - [ ] Real-time risk meter display (P(RISK), EMA, any_risk_in_buffer) - show as running chart on the bottom with a line or indicator for each
-  - [ ] Send masked user utterance to LLM API (Anthropic Claude)
-  - [ ] Stream LLM response back to user (unmasked for now)
-  - [ ] Display conversation history with masking indicators
-- [ ] Environment setup:
-  - [ ] `.env` file for API keys (ANTHROPIC_API_KEY)
-  - [ ] `.env.example` template
-  - [ ] `.gitignore` to exclude `.env`, models, datasets
+### Interactive GUI client (real-time user testing)
+- [ ] `scripts/gui_client.py` - **Pop-up window application** (NOT CLI):
+  - [ ] **Input display (top)**:
+    - [ ] Show user's text as they type in real-time
+    - [ ] Risk indicators appear under words that trigger risk
+  - [ ] **Real-time risk chart (bottom)**:
+    - [ ] Live chart showing P(RISK) and EMA over time
+    - [ ] Horizontal threshold line (T_high) clearly visible
+    - [ ] EMA line turns red when crossing threshold
+    - [ ] Updates continuously as user types
+  - [ ] **Stream break and masking**:
+    - [ ] Pause detection based on configured timeout (default 3s)
+    - [ ] After pause, run masker on buffered text
+    - [ ] Display masked version directly below original text (side-by-side comparison)
+  - [ ] **Base model streaming**:
+    - [ ] Send masked text to base model (Anthropic Claude)
+    - [ ] Stream response back in window
+    - [ ] **Interruption handling**: If user starts typing during response:
+      - [ ] Pause the response streaming
+      - [ ] Only include displayed portion in conversation history
+      - [ ] Discard unplayed portion of response
+  - [ ] **UI Framework**: TBD (options: tkinter, PyQt, Gradio, Streamlit)
+- [x] Environment setup:
+  - [x] `.env` file for API keys (ANTHROPIC_API_KEY)
+  - [x] `.env.example` template
+  - [x] `.gitignore` to exclude `.env`, models, datasets
+- [ ] `scripts/client.py` (CLI version - basic, for debugging only):
+  - [x] Basic parameter fix for ExchangePIIGuard
+  - [ ] Note: This is NOT the main interactive client (see gui_client.py above)
 
 ## Phase 3: Synthetic data generation (with entity labels)
 
@@ -237,7 +253,7 @@ Each record should include:
 ---
 
 ## Current Status (update as you go)
-**Last Updated**: 2026-01-10
+**Last Updated**: 2026-01-10 (evening)
 
 ### Confirmed Architectural Decisions
 
@@ -281,6 +297,7 @@ Each record should include:
 - [x] Implement `src/ccpp/infer/stage2_redactor.py` (mock: regex-based entity extraction)
 - [x] Implement `src/ccpp/infer/guard.py` (ExchangePIIGuard with full streaming logic)
 - [x] Implement `scripts/demo.py` (6 scenarios + interactive mode)
+- [x] Implement `scripts/client.py` (basic CLI debugging client - fixed parameter names)
 - [x] Update `CLAUDE.md` with:
   - [x] Per-token architecture diagram
   - [x] Detailed conversation example with 18 turns
@@ -288,11 +305,13 @@ Each record should include:
   - [x] Buffer-scoped label explanation
 
 ### Next Steps
-1. **Phase 2.5**: Interactive client for real-time testing
-   - User input streaming through classifier
-   - LLM response streaming (unclassified for now)
-   - Real-time risk score/EMA display
-   - Space-to-start, configurable timeout (3s default)
+1. **Phase 2 (continued)**: Implement GUI interactive client (`scripts/gui_client.py`)
+   - Choose UI framework (tkinter, PyQt, Gradio, or Streamlit)
+   - Build pop-up window with real-time chart (P(RISK) and EMA with threshold lines)
+   - Visual risk indicators under words as they trigger
+   - Side-by-side original/masked text comparison
+   - Response streaming with interruption handling (pause on user typing)
+   - Only include displayed portion of interrupted responses in history
 2. **Phase 3**: Implement synthetic data generation
    - Create Stage 1 training data with buffer-scoped labels
    - Create Stage 2 training data with entity text format
