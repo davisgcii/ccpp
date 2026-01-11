@@ -11,6 +11,10 @@ Prerequisites:
 
 import os
 import pytest
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 from ccpp.llm.ollama_backend import OllamaBackend
 from ccpp.llm.api_backend import AnthropicBackend, OpenAIBackend
@@ -31,10 +35,21 @@ class TestOllamaIntegration:
         try:
             import ollama
             client = ollama.Client()
-            models = client.list()
-            available = any("qwen" in m["name"].lower() for m in models.get("models", []))
-            if not available:
-                pytest.skip("Ollama not running or qwen model not available. Run: ollama pull qwen3:1.7b")
+            models_response = client.list()
+
+            # The response is a ListResponse object with a .models attribute
+            # Each model has .model, .modified_at, .digest, .size, etc.
+            models = models_response.models if hasattr(models_response, 'models') else []
+
+            # Check if any qwen model is available
+            available_models = [m.model for m in models if hasattr(m, 'model')]
+            has_qwen = any("qwen" in name.lower() for name in available_models)
+
+            if not has_qwen:
+                pytest.skip(
+                    f"No qwen model found. Available models: {available_models}. "
+                    f"Run: ollama pull qwen3:1.7b"
+                )
             return True
         except Exception as e:
             pytest.skip(f"Ollama not accessible: {e}")
