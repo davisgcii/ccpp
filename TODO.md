@@ -7,8 +7,8 @@ CC++-inspired streaming PII masker for black-box LLMs.
 **Core pipeline is functional** - Stage 1 classification and Stage 2 redaction are working.
 
 ### Completed
-- Ollama backend with native logprobs API (default)
-- MLX backend with sequence log-likelihood (Apple Silicon)
+- MLX backend with sequence log-likelihood (default, Apple Silicon)
+- Ollama backend with native logprobs API (cross-platform alternative)
 - Two-stage cascade architecture
 - Fast heuristics (regex patterns)
 - Stream break detection and EMA smoothing

@@ -41,15 +41,15 @@ Streaming text → HoldbackBuffer → Fast Heuristics → Stage 1 Router → EMA
 ```
 
 ### Stage 1: Fast Risk Router
-- **Backend**: Ollama (default) or MLX (Apple Silicon)
-- **Model**: qwen3:0.6b (fast) or qwen3:1.7b (more accurate)
-- **Method**: Native logprobs API with `think=False` to disable Qwen3 thinking mode
-- **Output**: Calibrated probability P(FAIL) ∈ [0,1] from softmax over SAFE/FAIL logprobs
-- **Speed**: ~300-500ms per classification (Ollama), ~10-20ms (MLX sequence LL)
+- **Backend**: MLX (default, Apple Silicon) or Ollama (cross-platform)
+- **Model**: Qwen/Qwen3-1.7B-MLX-8bit (MLX) or qwen3:0.6b/1.7b (Ollama)
+- **Method**: Sequence log-likelihood (MLX) or native logprobs API (Ollama)
+- **Output**: Calibrated probability P(FAIL) ∈ [0,1]
+- **Speed**: ~1-2s per classification (MLX), ~300-500ms (Ollama)
 
 ### Stage 2: Entity Redactor
-- **Backend**: Ollama (default) or MLX (Apple Silicon)
-- **Model**: qwen3:1.7b (more accurate for entity extraction)
+- **Backend**: MLX (default, Apple Silicon) or Ollama (cross-platform)
+- **Model**: Qwen/Qwen3-1.7B-MLX-8bit (MLX) or qwen3:1.7b (Ollama)
 - **Output**: `PASS` or `MASK "entity" category; ...`
 - **Invoked**: Only at stream breaks when risk detected
 
@@ -111,14 +111,15 @@ constitutions/       # PII definitions and allowlists
 Single config file: `configs/default.yaml`
 
 Key settings:
-- `stage1.backend: ollama` - Use Ollama with native logprobs (default)
-- `stage1.model_name: qwen3:0.6b` - Fast model for Stage 1
-- `stage2.model_name: qwen3:1.7b` - Larger model for Stage 2
+- `stage1.backend: mlx` - Use MLX with sequence log-likelihood (default)
+- `stage1.model_name: Qwen/Qwen3-1.7B-MLX-8bit` - MLX model for Stage 1
+- `stage2.model_name: Qwen/Qwen3-1.7B-MLX-8bit` - MLX model for Stage 2
+- `stage1.sequence_loglikelihood.enabled: true` - Required for MLX backend
 - `streaming.stream_break_timeout_ms: 2000` - 2s timeout for voice pauses
 - `streaming.t_high: 0.6` - EMA threshold to escalate
 - `streaming.risk_threshold: 0.7` - Individual token threshold
 
-**Note**: Prompt templates use `Answer:` ending (not `Classification:`) to prevent model from echoing the word.
+**Note**: For Ollama backend, set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` models, and set `sequence_loglikelihood.enabled: false`. Prompt templates use `Answer:` ending to prevent model echo.
 
 ## Development Notes
 

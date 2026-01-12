@@ -7,11 +7,11 @@ A CC++-inspired streaming exchange classifier for PII detection and masking in b
 **ACTIVE DEVELOPMENT** - Core pipeline implemented with working two-stage cascade:
 
 ✅ **Working**:
-- Stage 1 classification using Ollama native logprobs (with `think=False` for Qwen3)
-- Stage 2 entity extraction with Ollama text generation
+- Stage 1 classification using MLX sequence log-likelihood (default, Apple Silicon)
+- Stage 2 entity extraction with MLX text generation
+- Ollama backend available as cross-platform alternative (native logprobs)
 - GUI client with real-time visualization
 - Fast heuristics (regex patterns)
-- MLX backend available for Apple Silicon (sequence log-likelihood)
 
 ⏸️ **Not Started**:
 - Training data generation
@@ -24,17 +24,19 @@ See [TODO.md](TODO.md) for detailed progress tracking.
 
 This project implements a two-stage cascade for streaming PII detection and masking:
 
-- **Stage 1 (Router)**: Fast classification using Ollama with qwen3:0.6b (native logprobs)
-- **Stage 2 (Redactor)**: Accurate entity extraction using Ollama with qwen3:1.7b
+- **Stage 1 (Router)**: Fast classification using MLX with Qwen3-1.7B (sequence log-likelihood)
+- **Stage 2 (Redactor)**: Accurate entity extraction using MLX with Qwen3-1.7B
+
+Ollama backend available as cross-platform alternative with native logprobs API.
 
 ## Features
 
 - **Per-token classification**: Runs on every new token/chunk (not fixed windows)
-- **Stream break detection**: Timeout-based (default 3s) for natural conversation boundaries
+- **Stream break detection**: Timeout-based (default 2s) for natural conversation boundaries
 - **Three-condition masking**: any_risk_in_buffer OR ema≥T_high OR strong_heuristic_match
 - **EMA natural decay**: Cross-break PII detection without manual reset
-- **Native logprobs**: Ollama backend extracts calibrated probabilities via logprobs API (single forward pass)
-- **LLM harness**: Unified interface for Ollama (default), MLX (Apple Silicon), and API backends (Claude, GPT)
+- **Calibrated probabilities**: MLX uses sequence log-likelihood, Ollama uses native logprobs API
+- **LLM harness**: Unified interface for MLX (default), Ollama (cross-platform), and API backends (Claude, GPT)
 
 ## Quick Start
 
@@ -62,17 +64,17 @@ uv run python scripts/gui_client.py
 # Logs available at /tmp/gui_debug.log
 ```
 
-**Note**: Requires Ollama with qwen3 models. Run `ollama pull qwen3:0.6b && ollama pull qwen3:1.7b` first.
+**Note**: Default backend is MLX (Apple Silicon). For Ollama backend, run `ollama pull qwen3:0.6b && ollama pull qwen3:1.7b` and update `configs/default.yaml`.
 
 ## Configuration
 
-CC++ uses a flexible YAML-based configuration system. Current implementation uses **Ollama backend** by default (cross-platform). MLX backend available for Apple Silicon.
+CC++ uses a flexible YAML-based configuration system. Default backend is **MLX** (Apple Silicon). Ollama backend available as cross-platform alternative.
 
 ### Current Configuration (`configs/default.yaml`)
 
-**Backend**: Ollama (cross-platform, local inference)
-- **Stage 1 Router**: `qwen3:0.6b` with native logprobs API
-- **Stage 2 Redactor**: `qwen3:1.7b` with text generation
+**Backend**: MLX (Apple Silicon, local inference)
+- **Stage 1 Router**: `Qwen/Qwen3-1.7B-MLX-8bit` with sequence log-likelihood
+- **Stage 2 Redactor**: `Qwen/Qwen3-1.7B-MLX-8bit` with text generation
 
 **Key Parameters**:
 - **Stream break timeout**: `2000ms` (2 seconds) - wait time before masking decision
@@ -83,10 +85,7 @@ CC++ uses a flexible YAML-based configuration system. Current implementation use
   - `risk_threshold: 0.7` - individual token P(RISK) threshold for immediate flagging
 - **Heuristics**: Enabled (regex patterns for emails, phones, SSNs, API keys)
 
-**Logit Extraction** (Stage 1):
-- Tokens: `SAFE`, `FAIL` (uses `Answer:` prompt ending to prevent model echo)
-- Uses `think=False` to disable Qwen3 thinking mode
-- Extracts logprobs and applies softmax for calibrated probabilities
+**Ollama Alternative**: Set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` models, set `sequence_loglikelihood.enabled: false`. Uses native logprobs API with `think=False`.
 
 See [Configuration Guide](docs/CONFIG.md) for complete reference and `configs/default.yaml` for full configuration.
 
