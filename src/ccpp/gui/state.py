@@ -83,13 +83,15 @@ class PIIClientState:
 
         # State variables
         self.buffer = ""
-        self.risk_history = []  # [(char_idx, p_risk, ema, any_risk), ...]
+        self.risk_history = []  # [(char_idx, p_risk, ema, any_risk), ...] for current buffer
+        self.archived_risk_history = []  # Historical data from previous buffers for smooth chart transitions
         self.conversation = []  # Enhanced with metadata field
         self.last_input_time = None
         self.processed_buffer = ""  # Last buffer sent to LLM
         self.is_processing = False  # Currently processing/waiting for LLM
         self.should_interrupt = False  # User typed during LLM response
         self.last_classified_len = 0  # Length of buffer when we last classified
+        self.is_classifying = False  # Currently running Stage 1 classification
 
         # GUI debugging metadata (for hover tooltips)
         self.current_char_data: list[CharClassification] = []  # Per-char for current buffer
@@ -108,12 +110,14 @@ class PIIClientState:
         with self.lock:
             self.buffer = ""
             self.risk_history = []
+            self.archived_risk_history = []
             self.conversation = []
             self.last_input_time = None
             self.processed_buffer = ""
             self.is_processing = False
             self.should_interrupt = False
             self.last_classified_len = 0
+            self.is_classifying = False
             self.current_char_data = []
             self.current_buffer_metadata = None
             self.guard.reset()
@@ -149,13 +153,20 @@ class PIIClientState:
                 logger.debug("[should_process_buffer] No buffer, returning False")
                 return False
 
+            # Don't process if a classification is still running
+            if self.is_classifying:
+                logger.debug("[should_process_buffer] Classification in progress, returning False")
+                return False
+
             # Check if buffer already processed
             if self.buffer == self.processed_buffer:
                 logger.debug(f"[should_process_buffer] Buffer already processed ('{self.buffer[:30]}...'), returning False")
                 return False
-            if not self.buffer[-1].isspace():
-                logger.debug("[should_process_buffer] Buffer not at word boundary, returning False")
-                return False
+
+            # NOTE: We removed the word-boundary check here. Previously we required
+            # buffer[-1].isspace() before processing, but this caused a bug where
+            # typing "hello world" (no trailing space) would never trigger stream break.
+            # The 3s timeout should fire regardless of whether user ended on a space.
 
             # Check if enough time has passed
             if self.last_input_time is None:

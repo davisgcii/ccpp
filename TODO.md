@@ -106,6 +106,14 @@ Each record needs:
 - [ ] Add `has_logit_extraction` flag to ApprovedModel enum
 - [ ] Unify prompt building to template-only (remove legacy few-shot scaffolding)
 
+### Performance (Maybe Later)
+- [ ] Parallel classification using ThreadPoolExecutor or multiprocessing
+  - Currently classifications run sequentially (~2.5s each)
+  - 10 word boundaries = 25s blocking time before stream break
+  - Could submit classifications to thread pool as spaces are detected
+  - Unknown: whether MLX can parallelize GPU work or serializes internally
+  - See `docs/stream.md` for architecture analysis
+
 ### Documentation
 - [ ] Add troubleshooting guide
 - [ ] Write technical blog post comparing to CC++ jailbreak detection

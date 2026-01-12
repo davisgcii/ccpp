@@ -42,10 +42,10 @@ Streaming text → HoldbackBuffer → Fast Heuristics → Stage 1 Router → EMA
 
 ### Stage 1: Fast Risk Router
 - **Backend**: MLX (default, Apple Silicon) or Ollama (cross-platform)
-- **Model**: Qwen/Qwen3-1.7B-MLX-8bit (MLX) or qwen3:0.6b/1.7b (Ollama)
+- **Model**: mlx-community/Qwen3-0.6B-4bit (MLX) or qwen3:0.6b (Ollama)
 - **Method**: Sequence log-likelihood (MLX) or native logprobs API (Ollama)
 - **Output**: Calibrated probability P(FAIL) ∈ [0,1]
-- **Speed**: ~1-2s per classification (MLX), ~300-500ms (Ollama)
+- **Speed**: ~0.5-1s per classification (MLX with 0.6B-4bit), ~300-500ms (Ollama)
 
 ### Stage 2: Entity Redactor
 - **Backend**: MLX (default, Apple Silicon) or Ollama (cross-platform)
@@ -112,8 +112,8 @@ Single config file: `configs/default.yaml`
 
 Key settings:
 - `stage1.backend: mlx` - Use MLX with sequence log-likelihood (default)
-- `stage1.model_name: Qwen/Qwen3-1.7B-MLX-8bit` - MLX model for Stage 1
-- `stage2.model_name: Qwen/Qwen3-1.7B-MLX-8bit` - MLX model for Stage 2
+- `stage1.model_name: mlx-community/Qwen3-0.6B-4bit` - Fast MLX model for Stage 1
+- `stage2.model_name: Qwen/Qwen3-1.7B-MLX-8bit` - Accurate MLX model for Stage 2
 - `stage1.sequence_loglikelihood.enabled: true` - Required for MLX backend
 - `streaming.stream_break_timeout_ms: 2000` - 2s timeout for voice pauses
 - `streaming.t_high: 0.6` - EMA threshold to escalate

@@ -204,6 +204,8 @@ class OllamaBackend(LLMBackend):
         try:
             # Use generate() with think=False to disable Qwen3 thinking mode
             # Note: Don't use raw=True as it prevents think=False from working
+            import time
+            start_time = time.time()
             response = self.client.generate(
                 model=self.model_name,
                 prompt=prompt,
@@ -216,6 +218,7 @@ class OllamaBackend(LLMBackend):
                 logprobs=True,  # Enable logprobs
                 top_logprobs=20,  # Get top 20 (Ollama max limit)
             )
+            latency_ms = int((time.time() - start_time) * 1000)
 
             # Extract logprobs from response - required, no fallback
             # Note: ollama-python SDK returns Pydantic objects, not dicts
@@ -322,6 +325,7 @@ class OllamaBackend(LLMBackend):
                     "prob_b": prob_b,
                     "top_logprobs": top_logprobs_serialized,
                 },
+                "latency_ms": latency_ms,
             })
 
             return (prob_a, prob_b)

@@ -24,7 +24,7 @@ See [TODO.md](TODO.md) for detailed progress tracking.
 
 This project implements a two-stage cascade for streaming PII detection and masking:
 
-- **Stage 1 (Router)**: Fast classification using MLX with Qwen3-1.7B (sequence log-likelihood)
+- **Stage 1 (Router)**: Fast classification using MLX with Qwen3-0.6B-4bit (sequence log-likelihood)
 - **Stage 2 (Redactor)**: Accurate entity extraction using MLX with Qwen3-1.7B
 
 Ollama backend available as cross-platform alternative with native logprobs API.
@@ -73,8 +73,8 @@ CC++ uses a flexible YAML-based configuration system. Default backend is **MLX**
 ### Current Configuration (`configs/default.yaml`)
 
 **Backend**: MLX (Apple Silicon, local inference)
-- **Stage 1 Router**: `Qwen/Qwen3-1.7B-MLX-8bit` with sequence log-likelihood
-- **Stage 2 Redactor**: `Qwen/Qwen3-1.7B-MLX-8bit` with text generation
+- **Stage 1 Router**: `mlx-community/Qwen3-0.6B-4bit` with sequence log-likelihood (fast)
+- **Stage 2 Redactor**: `Qwen/Qwen3-1.7B-MLX-8bit` with text generation (accurate)
 
 **Key Parameters**:
 - **Stream break timeout**: `2000ms` (2 seconds) - wait time before masking decision

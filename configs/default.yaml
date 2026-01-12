@@ -25,7 +25,11 @@ stage1:
   # Model configuration
   # MLX models: "Qwen/Qwen3-1.7B-MLX-8bit", "mlx-community/Qwen3-0.6B-4bit"
   # Ollama models: "qwen3:0.6b", "qwen3:1.7b"
-  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # MLX model for Stage 1
+  #
+  # Using 0.6B-4bit for Stage 1: ~40% faster classification (~1s vs ~2s)
+  # Stage 1 only needs SAFE/FAIL classification, smaller model is sufficient
+  model_name: mlx-community/Qwen3-0.6B-4bit  # Faster model for Stage 1
+  # model_name: Qwen/Qwen3-1.7B-MLX-8bit  # More accurate but slower
   # model_name: qwen3:0.6b  # Uncomment for Ollama backend
   quantized: true  # Only used by MLX backend
 
@@ -79,119 +83,292 @@ stage1:
   # Formatted with markdown similar to Stage 2, with few-shot examples
   # showing realistic conversation contexts
   prompt_template: |
-    # Instructions
+    # Role
+    You are a **PII classifier** for **STREAMING text**.
 
-    You are a PII classifier for streaming text. Classify the buffer as SAFE or FAIL.
+    # Task
+    Classify the **CURRENT BUFFER** as `SAFE` or `FAIL`.
 
-    ## FAIL - Classify as FAIL if ANY of these are true:
-    - Buffer contains actual PII: email, phone, SSN, address, API key, order/account numbers (any 5+ digit number in response to a request for identifying information)
-    - Buffer contains partial PII (e.g., "555-12" is start of phone number, "1830" could be start of order number)
-    - User is clearly about to provide PII: assistant asked for PII AND user has started responding with phrases like "my email is", "my order number is", "it's", "sure, it's", "my phone is"
-    - Buffer contains PII AND user is still typing (e.g., "my email is john@gmail.com and")
+    - Output must be **exactly one token**: `SAFE` or `FAIL`
+    - Decide **only from what is in the buffer right now**, using the provided context.
+    - Do **not** guess what the user will type next beyond what the buffer already shows.
 
-    ## SAFE - Classify as SAFE only if:
-    - Buffer is a greeting, question, or general help request
-    - Buffer does not contain actual PII data
-    - User redirects or asks a different question instead of providing requested PII
+    ---
+
+    # Decision Rules
+
+    ## FAIL if ANY are true
+
+    ### A) Actual PII is present in the buffer
+    Fail if the buffer contains any of the following **as actual data** (including common obfuscations):
+
+    - **Email** (including “name at domain dot com”)
+    - **Phone** numbers (any phone-like pattern; typically 7+ digits; may include country code)
+    - **Street/shipping address** (house number + street name; unit/apt; ZIP)
+    - **Government IDs**: SSN, passport, driver’s license, national IDs
+    - **Financial**: credit card numbers, bank account/routing numbers, IBAN/SWIFT
+    - **Credentials/secrets**: passwords, OTPs/recovery codes
+    - **Keys/tokens**: API keys, auth tokens (Bearer/JWT), session cookies, private keys, seed phrases
+    - **Order/account identifiers**: order numbers, tracking numbers, confirmation codes, account IDs when provided
+    - **Network/device identifiers**: IP addresses, MAC addresses, device IDs/serials
+
+    ### B) Partial PII is present (streaming fragment)
+    Fail if the buffer contains a **fragment** that looks like the start of PII, such as:
+    - `(415) 555-`
+    - `nina.park@`
+    - `118 Lost`
+    - `4242 4242 4242`
+    - `000-12-`
+    - `Bearer eyJhbGciOi`
+
+    ### C) Imminent PII due to context
+    Fail if:
+    1) The user buffer looks like they are **about to provide it** (even if the actual PII isn’t visible yet)., **especially if**
+    2) The context contains discussion about PII or requests for PII
+
+    **Imminent lead-ins** (case-insensitive; may include punctuation):
+    - `my email is`, `email is`, `it's under the email`
+    - `my phone is`, `my number`, `number is`
+    - `my address is`, `ship to`, `deliver to`, `it was shipped to`
+    - `order is`, `order number is`, `tracking is`, `account id is`
+    - `password is`, `otp is`, `code is`, `token is`, `api key is`
+
+    **Important:** Imminent-PII FAIL does not require the context to contain discussion of PII if the lead-in is explicit, e.g. "my email is".
+
+    ---
+
+    ## SAFE otherwise
+    If none of the FAIL conditions apply, classify as `SAFE`.
 
     ---
 
     # Examples
 
-    ## Example 1
-    Context: (No prior context)
-    Buffer: hi there, can you help me find my order?
+    ## Section 1 — Clear SAFE
 
-    Answer: SAFE
+    **EXAMPLE 1**  
+    Context: (No prior context)  
+    Buffer: hi — can you help me?  
+    Answer: SAFE  
+    Reasoning: Generic help request; no identifiers or imminent PII.
 
-    ## Example 2
-    Context:
-    User: I need help
-    Assistant: What's your order number?
-    Buffer: my order number is
+    **EXAMPLE 2**  
+    Context: (No prior context)  
+    Buffer: my package is late and i’m frustrated  
+    Answer: SAFE  
+    Reasoning: Complaint; no identifying data.
 
-    Answer: FAIL
+    **EXAMPLE 3**  
+    Context: (No prior context)  
+    Buffer: i live in ohio  
+    Answer: SAFE  
+    Reasoning: State-level location only; no street address.
 
-    ## Example 3
-    Context:
-    User: I need help
-    Assistant: What's your order number?
-    Buffer: 1830583
+    **EXAMPLE 4**  
+    Context:  
+    User: i need help with a return  
+    Assistant: what seems to be the issue?  
+    Buffer: it’s missing a button  
+    Answer: SAFE  
+    Reasoning: “it’s” refers to the product issue; assistant did not ask for PII.
 
-    Answer: FAIL
+    **EXAMPLE 5**  
+    Context:  
+    User: can you tell me your store hours?  
+    Assistant: sure — what city are you in?  
+    Buffer: columbus  
+    Answer: SAFE  
+    Reasoning: City only; not a street address.
 
-    ## Example 4
-    Context:
-    User: I need help
-    Assistant: What's your order number?
-    Buffer: my order number is 1830583
+    **EXAMPLE 6**  
+    Context:  
+    User: i can’t log in  
+    Assistant: i can help troubleshoot. what error do you see?  
+    Buffer: it says invalid password  
+    Answer: SAFE  
+    Reasoning: Mentions password conceptually, but no password value.
 
-    Answer: FAIL
+    **EXAMPLE 7**  
+    Context:  
+    User: what carriers do you ship with?  
+    Assistant: we use ups/usps/fedex depending on region.  
+    Buffer: thanks!  
+    Answer: SAFE  
+    Reasoning: No PII.
 
-    ## Example 5
-    Context:
-    User: I need help
-    Assistant: What's your order number?
-    Buffer: my order number is 1830583 and my email is
+    **EXAMPLE 8**  
+    Context:  
+    User: i think i was charged twice  
+    Assistant: can you tell me the date of the charge?  
+    Buffer: january 3rd  
+    Answer: SAFE  
+    Reasoning: Date alone is not an identifier.
 
-    Answer: FAIL
+    **EXAMPLE 9**  
+    Context:  
+    User: where are you located?  
+    Assistant: we have stores in several states.  
+    Buffer: do you have one in nevada?  
+    Answer: SAFE  
+    Reasoning: General location question; no PII.
 
-    ## Example 6
-    Context:
-    User: hi there?
-    Assistant: What's your email address?
-    Buffer: it's
-
-    Answer: FAIL
-
-    ## Example 7
-    Context:
-    User: hi there?
-    Assistant: What's your email address?
-    Buffer: john@gmail.com
-
-    Answer: FAIL
-
-    ## Example 8
-    Context:
-    User: I have a question
-    Assistant: What's your question?
-    Buffer: where is your store in Las Vegas?
-
-    Answer: SAFE
-
-    ## Example 9
-    Context:
-    User: hi
-    Assistant: What's your phone number?
-    Buffer: 555-12
-
-    Answer: FAIL
-
-    ## Example 10
-    Context:
-    User: I bought a jacket last week
-    Assistant: What's your email so I can look up the order?
-    Buffer: actually, can I just
-
-    Answer: SAFE
-
-    ## Example 11
-    Context: (No prior context)
-    Assistant: How can I help you today?
-    Buffer: how long does shipping take?
-
-    Answer: SAFE
-
-    ## Example 12
-    Context: (No prior context)
-    Buffer: i need
-
-    Answer: SAFE
+    **EXAMPLE 10**  
+    Context:  
+    User: my email is [PII/EMAIL]  
+    Assistant: thanks — how else can i help?  
+    Buffer: actually nevermind, i found it  
+    Answer: SAFE  
+    Reasoning: Buffer contains no new PII; masked placeholders in context do not count as PII in the current buffer.
 
     ---
 
-    # Your Turn
+    ## Section 2 — Clear FAIL
+
+    **EXAMPLE 11**  
+    Context: (No prior context)  
+    Buffer: nina.park@example.com  
+    Answer: FAIL  
+    Reasoning: Contains an email address.
+
+    **EXAMPLE 12**  
+    Context: (No prior context)  
+    Buffer: call me at (415) 555-0147  
+    Answer: FAIL  
+    Reasoning: Contains a phone number.
+
+    **EXAMPLE 13**  
+    Context: (No prior context)  
+    Buffer: ship to 118 Lost Planton Rd Apt 4C  
+    Answer: FAIL  
+    Reasoning: Contains a street address.
+
+    **EXAMPLE 14**  
+    Context: (No prior context)  
+    Buffer: my ssn is 000-12-3456  
+    Answer: FAIL  
+    Reasoning: Contains SSN-like identifier.
+
+    **EXAMPLE 15**  
+    Context: (No prior context)  
+    Buffer: it's 4242 4242 4242 4242 exp 10/30  
+    Answer: FAIL  
+    Reasoning: Contains a credit card number.
+
+    **EXAMPLE 16**  
+    Context: (No prior context)  
+    Buffer: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...  
+    Answer: FAIL  
+    Reasoning: Contains an auth token fragment.
+
+    **EXAMPLE 17**  
+    Context: (No prior context)  
+    Buffer: api key sk_live_TEST_9f3c2a1b77d84c2aa0c9  
+    Answer: FAIL  
+    Reasoning: API key present.
+
+    **EXAMPLE 18**  
+    Context: (No prior context)  
+    Buffer: tracking 1Z999AA10123456784  
+    Answer: FAIL  
+    Reasoning: Tracking number / identifier present.
+
+    **EXAMPLE 19**  
+    Context: (No prior context)  
+    Buffer: my ip is 203.0.113.42  
+    Answer: FAIL  
+    Reasoning: IP address is an identifier.
+
+    **EXAMPLE 20**  
+    Context:  
+    User: i need help finding my order  
+    Assistant: what’s the email on the order?  
+    Buffer: it’s  
+    Answer: FAIL  
+    Reasoning: Assistant asked for email; “it’s” is an imminent-PII lead-in.
+
+    ---
+
+    ## Section 3 — Ambiguous (still labeled)
+
+    **EXAMPLE 21**  
+    Context:  
+    User: i need help finding my order  
+    Assistant: what’s the email on the order?  
+    Buffer: my  
+    Answer: FAIL  
+    Reasoning: No email value yet, but this is an imminent-PII lead-in to a requested email.
+
+    **EXAMPLE 22**  
+    Context:  
+    User: i need help  
+    Assistant: what’s your phone number?  
+    Buffer: sure it's 
+    Answer: FAIL  
+    Reasoning: After a phone-number request, “sure it's” is a strong imminent-PII lead-in.
+
+    **EXAMPLE 23**  
+    Context:  
+    User: i need help with shipping  
+    Assistant: what’s the delivery address?  
+    Buffer: 118  
+    Answer: FAIL  
+    Reasoning: After an address request, even a partial number is likely the start of an address.
+
+    **EXAMPLE 24**  
+    Context:  
+    User: my order never arrived  
+    Assistant: can you share your order number?  
+    Buffer: what is your refund 
+    Answer: SAFE  
+    Reasoning: Despite discussion of PII in context, user is not providing or showing imminent mention of PII.
+
+    **EXAMPLE 25**  
+    Context: (No prior context)  
+    Buffer: my email is  
+    Answer: FAIL  
+    Reasoning: Despite no discussion of PII in context, user is providing an imminent-PII lead-in.
+
+    **EXAMPLE 26**  
+    Context: (No prior context)  
+    Buffer: it’s  
+    Answer: SAFE  
+    Reasoning: Too generic without PII request context.
+
+    **EXAMPLE 27**  
+    Context:  
+    User: i can’t log in  
+    Assistant: what’s your email?  
+    Buffer: nina
+    Answer: FAIL  
+    Reasoning: Partial email fragment.
+
+    **EXAMPLE 28**  
+    Context:  
+    User: can you help me?  
+    Assistant: what’s your order number?  
+    Buffer: 5839  
+    Answer: FAIL  
+    Reasoning: Identifier fragment in response to request; treat as partial PII.
+
+    **EXAMPLE 29**  
+    Context:  
+    User: where is my package?  
+    Assistant: what’s your tracking number?  
+    Buffer: it’s not here  
+    Answer: SAFE  
+    Reasoning: Despite “it’s”, buffer clearly expresses a complaint, not an identifier.
+
+    **EXAMPLE 30**  
+    Context:  
+    User: i was charged twice  
+    Assistant: can you paste the card number so i can check?  
+    Buffer: i don’t feel comfortable sharing that  
+    Answer: SAFE  
+    Reasoning: User refuses; no PII present.
+
+    ---
+
+    # Now classify
 
     Context:
     {context}

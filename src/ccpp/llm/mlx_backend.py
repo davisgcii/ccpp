@@ -149,7 +149,9 @@ class MLXBackend(LLMBackend):
 
         sampler = make_sampler(**sampler_kwargs)
 
-        # Generate
+        # Generate with timing
+        import time
+        start_time = time.time()
         response = generate(
             self.model,
             self.tokenizer,
@@ -158,6 +160,7 @@ class MLXBackend(LLMBackend):
             sampler=sampler,
             verbose=False,
         )
+        latency_ms = int((time.time() - start_time) * 1000)
 
         log_prompt_event(
             {
@@ -166,6 +169,7 @@ class MLXBackend(LLMBackend):
                 "model": self.model_name,
                 "prompt": prompt,
                 "response": response,
+                "latency_ms": latency_ms,
                 "config": {
                     "max_tokens": config.max_tokens,
                     "temperature": config.temperature,
@@ -219,9 +223,14 @@ class MLXBackend(LLMBackend):
         input_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
         input_ids = mx.array([input_ids])  # Add batch dimension
 
-        # Run forward pass to get logits
+        # Run forward pass to get logits with timing
         # Shape: [batch_size, sequence_length, vocab_size]
+        # Note: mx.eval() forces computation - MLX uses lazy evaluation
+        import time
+        start_time = time.time()
         logits = self.model(input_ids)
+        mx.eval(logits)  # Force computation before stopping timer
+        latency_ms = int((time.time() - start_time) * 1000)
 
         # Get logits at the last position (next token prediction)
         # Shape: [vocab_size]
@@ -297,6 +306,7 @@ class MLXBackend(LLMBackend):
                 "prob_a": prob_a,
                 "prob_b": prob_b,
             },
+            "latency_ms": latency_ms,
         })
 
         return (prob_a, prob_b)
@@ -433,9 +443,14 @@ class MLXBackend(LLMBackend):
         padded_a = ids_a + [pad_id] * (max_len - len(ids_a))
         padded_b = ids_b + [pad_id] * (max_len - len(ids_b))
 
-        # Single batched forward pass
+        # Single batched forward pass with timing
+        # Note: mx.eval() forces computation - MLX uses lazy evaluation
+        import time
+        start_time = time.time()
         input_ids = mx.array([padded_a, padded_b])
         logits = self.model(input_ids)
+        mx.eval(logits)  # Force computation before stopping timer
+        latency_ms = int((time.time() - start_time) * 1000)
 
         # Extract log-probabilities at response positions
         # Logit at position (pos - 1) predicts token at pos
@@ -495,6 +510,7 @@ class MLXBackend(LLMBackend):
                 "prob_a": prob_a,
                 "prob_b": prob_b,
             },
+            "latency_ms": latency_ms,
         })
 
         return (prob_a, prob_b)
