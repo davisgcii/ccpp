@@ -5,9 +5,11 @@
 # This script installs all dependencies required to run the CC++ system:
 # - Homebrew (if not installed)
 # - uv (Python package manager)
-# - Ollama (local LLM server)
-# - Qwen3 models for classification and entity extraction
+# - Ollama (local LLM server) - checks installation only
 # - Python dependencies
+#
+# The default backend is MLX (Apple Silicon). For Ollama backend,
+# you'll need to manually start Ollama and pull the required models.
 #
 # Usage:
 #   chmod +x setup.sh
@@ -81,101 +83,36 @@ install_uv() {
     fi
 }
 
-# Install Ollama
+# Check/Install Ollama (for optional Ollama backend)
 install_ollama() {
-    print_step "Checking Ollama..."
+    print_step "Checking Ollama (optional, for Ollama backend)..."
 
     # Minimum version for logprobs support
     MIN_VERSION="0.12.11"
 
     if command -v ollama &> /dev/null; then
         CURRENT_VERSION=$(ollama --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        print_success "Ollama is already installed (v${CURRENT_VERSION})"
+        print_success "Ollama is installed (v${CURRENT_VERSION})"
 
         # Check version for logprobs support
         if [[ "$(printf '%s\n' "$MIN_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)" != "$MIN_VERSION" ]]; then
             print_warning "Ollama v${CURRENT_VERSION} does not support logprobs (requires v${MIN_VERSION}+)"
-            print_step "Upgrading Ollama..."
-            brew upgrade ollama || true
+            print_warning "Run 'brew upgrade ollama' to upgrade"
         fi
     else
         print_step "Installing Ollama via Homebrew..."
         brew install ollama
         print_success "Ollama installed"
     fi
+
+    # Inform user about required models for Ollama backend
+    echo
+    print_warning "To use the Ollama backend, you'll need to:"
+    echo "  1. Start Ollama: ollama serve (or brew services start ollama)"
+    echo "  2. Pull models: ollama pull qwen3:0.6b && ollama pull qwen3:1.7b"
+    echo "  3. Update configs/default.yaml to use 'ollama' backend"
 }
 
-# Start Ollama service
-start_ollama() {
-    print_step "Starting Ollama service..."
-
-    # Check if Ollama is already running
-    if curl -s http://localhost:11434/api/tags &> /dev/null; then
-        print_success "Ollama is already running"
-        return 0
-    fi
-
-    # Start Ollama in background
-    if [[ "$(uname)" == "Darwin" ]]; then
-        # macOS: Use brew services
-        brew services start ollama 2>/dev/null || true
-
-        # Wait for Ollama to start
-        print_step "Waiting for Ollama to start..."
-        for i in {1..30}; do
-            if curl -s http://localhost:11434/api/tags &> /dev/null; then
-                print_success "Ollama is running"
-                return 0
-            fi
-            sleep 1
-        done
-
-        # Try starting manually if brew services didn't work
-        print_warning "Trying to start Ollama manually..."
-        ollama serve &> /dev/null &
-        sleep 3
-
-        if curl -s http://localhost:11434/api/tags &> /dev/null; then
-            print_success "Ollama is running"
-            return 0
-        fi
-
-        print_error "Failed to start Ollama. Please start it manually with: ollama serve"
-        return 1
-    else
-        # Linux: Start manually
-        ollama serve &> /dev/null &
-        sleep 3
-        if curl -s http://localhost:11434/api/tags &> /dev/null; then
-            print_success "Ollama is running"
-            return 0
-        fi
-        print_error "Failed to start Ollama"
-        return 1
-    fi
-}
-
-# Pull required models
-pull_models() {
-    print_step "Pulling required Ollama models..."
-
-    # Models used by the system:
-    # - qwen3:0.6b - Stage 1 classification (fast, lightweight)
-    # - qwen3:1.7b - Stage 2 entity extraction (more accurate)
-    # Note: Use think=False in API calls to disable thinking mode
-    MODELS=("qwen3:0.6b" "qwen3:1.7b")
-
-    for MODEL in "${MODELS[@]}"; do
-        # Check if model is already downloaded
-        if ollama list 2>/dev/null | grep -q "$MODEL"; then
-            print_success "Model $MODEL is already downloaded"
-        else
-            print_step "Downloading $MODEL (this may take a few minutes)..."
-            ollama pull "$MODEL"
-            print_success "Model $MODEL downloaded"
-        fi
-    done
-}
 
 # Install Python dependencies
 install_python_deps() {
@@ -201,30 +138,18 @@ verify_installation() {
     print_step "Verifying installation..."
 
     # Check Python imports
-    if uv run python -c "from ccpp.llm.ollama_backend import OllamaBackend; print('OK')" &> /dev/null; then
-        print_success "Python imports working"
+    if uv run python -c "from ccpp.llm.mlx_backend import MLXBackend; print('OK')" &> /dev/null; then
+        print_success "Python imports working (MLX backend)"
     else
-        print_error "Python imports failed"
-        return 1
+        print_warning "MLX backend import failed - this is expected on non-Apple Silicon"
     fi
 
-    # Check Ollama connection
-    if curl -s http://localhost:11434/api/tags &> /dev/null; then
-        print_success "Ollama connection working"
+    # Check Ollama installation (not running - just that it's available)
+    if command -v ollama &> /dev/null; then
+        print_success "Ollama is installed"
     else
-        print_warning "Ollama not responding - make sure to start it with: ollama serve"
+        print_warning "Ollama not installed - install with: brew install ollama"
     fi
-
-    # Check model availability
-    MODELS_OK=true
-    for MODEL in "qwen3:0.6b" "qwen3:1.7b"; do
-        if ollama list 2>/dev/null | grep -q "$MODEL"; then
-            print_success "Model $MODEL available"
-        else
-            print_warning "Model $MODEL not found - run: ollama pull $MODEL"
-            MODELS_OK=false
-        fi
-    done
 }
 
 # Print usage instructions
@@ -233,20 +158,22 @@ print_usage() {
     echo -e "${GREEN}  Setup Complete!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo
+    echo "Default backend: MLX (Apple Silicon)"
+    echo
     echo "To start the GUI:"
     echo "  uv run python scripts/gui_client.py"
     echo
     echo "To run tests:"
     echo "  uv run pytest"
     echo
-    echo "If Ollama isn't running, start it with:"
-    echo "  brew services start ollama"
-    echo "  # or"
-    echo "  ollama serve"
-    echo
     echo "Logs are available at:"
     echo "  /tmp/gui_debug.log"
     echo "  /tmp/prompt_logs.jsonl"
+    echo
+    echo -e "${YELLOW}Optional: Ollama backend${NC}"
+    echo "  1. Start Ollama: ollama serve"
+    echo "  2. Pull models: ollama pull qwen3:0.6b && ollama pull qwen3:1.7b"
+    echo "  3. Edit configs/default.yaml: set backend to 'ollama'"
     echo
 }
 
@@ -267,8 +194,6 @@ main() {
     install_homebrew
     install_uv
     install_ollama
-    start_ollama
-    pull_models
     install_python_deps
     verify_installation
     print_usage

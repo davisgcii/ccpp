@@ -6,16 +6,27 @@
 
 # Stage 1: Fast Risk Router (Logit-based classifier with TRUE logit extraction)
 stage1:
-  # Backend selection: "ollama" (default), "mlx" (Apple Silicon), "anthropic", "openai"
-  # - ollama: Cross-platform, uses native logprobs API for calibrated probabilities
-  # - mlx: Apple Silicon only, uses sequence log-likelihood (slower but accurate)
-  backend: ollama  # Default: Ollama with native logprobs
+  # Backend selection: "mlx" (default, Apple Silicon), "ollama" (cross-platform), "anthropic", "openai"
+  #
+  # MLX (default): Apple Silicon only, uses sequence log-likelihood
+  #   - Pros: Calibrated probabilities, works offline
+  #   - Cons: Requires Apple Silicon, ~1-2s per classification
+  #   - Model: "Qwen/Qwen3-1.7B-MLX-8bit" or "mlx-community/Qwen3-0.6B-4bit"
+  #   - Requires: sequence_loglikelihood.enabled: true
+  #
+  # Ollama: Cross-platform, uses native logprobs API
+  #   - Pros: Works on any OS, potentially faster (~0.1-0.3s)
+  #   - Cons: Small models (0.6b) may have accuracy issues, requires Ollama running
+  #   - Model: "qwen3:0.6b" (fast) or "qwen3:1.7b" (better accuracy)
+  #   - Requires: sequence_loglikelihood.enabled: false, add think=False to API calls
+  #
+  backend: mlx  # Default: MLX for calibrated probabilities
 
   # Model configuration
-  # Ollama: "qwen3:0.6b" (fast) | "qwen3:1.7b" (better accuracy)
-  # Note: Use think=False to disable thinking mode for classification
-  # MLX: "mlx-community/Qwen3-0.6B-4bit" or "Qwen/Qwen3-1.7B-MLX-8bit"
-  model_name: qwen3:0.6b  # Fast model for Stage 1 classification
+  # MLX models: "Qwen/Qwen3-1.7B-MLX-8bit", "mlx-community/Qwen3-0.6B-4bit"
+  # Ollama models: "qwen3:0.6b", "qwen3:1.7b"
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # MLX model for Stage 1
+  # model_name: qwen3:0.6b  # Uncomment for Ollama backend
   quantized: true  # Only used by MLX backend
 
   # Generation settings
@@ -55,9 +66,11 @@ stage1:
   # Sequence log-likelihood scoring for SAFE vs FAIL
   # This computes P(prompt + "SAFE") vs P(prompt + "FAIL") as full sequences
   # Bypasses the <think> token bias issue in Qwen3
-  # NOTE: Only needed for MLX backend. Ollama uses native logprobs (faster).
+  #
+  # MLX backend: MUST be enabled (true) - MLX uses this for calibrated probabilities
+  # Ollama backend: MUST be disabled (false) - Ollama uses native logprobs API instead
   sequence_loglikelihood:
-    enabled: false  # Disable for Ollama; set to true if using MLX backend
+    enabled: true  # Set to true for MLX, false for Ollama
 
   # Prompt template mode: single template with placeholders
   # Placeholders: {context}, {current_buffer}
@@ -190,12 +203,19 @@ stage1:
 
 # Stage 2: Accurate Entity Redactor (Span extraction model)
 stage2:
-  # Backend selection: "ollama" (default), "mlx" (Apple Silicon), "anthropic", "openai"
-  backend: ollama  # Default: Ollama for consistent local inference
+  # Backend selection: "mlx" (default, Apple Silicon), "ollama" (cross-platform), "anthropic", "openai"
+  #
+  # MLX: Apple Silicon only, text generation for entity extraction
+  # Ollama: Cross-platform, text generation with think=False
+  #
+  backend: mlx  # Default: MLX for consistent local inference
+  # backend: ollama  # Uncomment for Ollama backend
 
   # Model configuration - Use larger model for entity extraction
-  # Ollama: "qwen3:1.7b" | MLX: "Qwen/Qwen3-1.7B-MLX-8bit"
-  model_name: qwen3:1.7b  # Larger model for accurate entity extraction
+  # MLX models: "Qwen/Qwen3-1.7B-MLX-8bit"
+  # Ollama models: "qwen3:1.7b"
+  model_name: Qwen/Qwen3-1.7B-MLX-8bit  # MLX model for entity extraction
+  # model_name: qwen3:1.7b  # Uncomment for Ollama backend
   quantized: true  # Only used by MLX backend
 
   # Generation settings

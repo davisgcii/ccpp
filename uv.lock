@@ -395,6 +395,8 @@ dependencies = [
     { name = "faker" },
     { name = "gradio" },
     { name = "huggingface-hub" },
+    { name = "mlx", marker = "platform_machine == 'arm64'" },
+    { name = "mlx-lm", marker = "platform_machine == 'arm64'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "ollama" },
@@ -418,10 +420,6 @@ dev = [
     { name = "pytest-mock" },
     { name = "ruff" },
 ]
-mlx = [
-    { name = "mlx", marker = "platform_machine == 'arm64'" },
-    { name = "mlx-lm", marker = "platform_machine == 'arm64'" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -437,8 +435,8 @@ requires-dist = [
     { name = "faker", specifier = ">=24.0.0" },
     { name = "gradio", specifier = ">=4.0.0" },
     { name = "huggingface-hub", specifier = ">=0.22.0" },
-    { name = "mlx", marker = "platform_machine == 'arm64' and extra == 'mlx'", specifier = ">=0.4.0" },
-    { name = "mlx-lm", marker = "platform_machine == 'arm64' and extra == 'mlx'", specifier = ">=0.4.0" },
+    { name = "mlx", marker = "platform_machine == 'arm64'", specifier = ">=0.4.0" },
+    { name = "mlx-lm", marker = "platform_machine == 'arm64'", specifier = ">=0.4.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "ollama", specifier = ">=0.1.0" },
     { name = "openai", specifier = ">=1.12.0" },
@@ -459,7 +457,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.40.0" },
     { name = "trl", specifier = ">=0.8.0" },
 ]
-provides-extras = ["dev", "test", "mlx"]
+provides-extras = ["dev", "test"]
 
 [[package]]
 name = "certifi"

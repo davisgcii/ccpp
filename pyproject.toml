@@ -27,6 +27,9 @@ dependencies = [
     "python-dotenv>=1.0.0",  # Load .env files
     "blessed>=1.20.0",  # Terminal input handling
     "gradio>=4.0.0",  # GUI client
+    # MLX backend (Apple Silicon)
+    "mlx>=0.4.0; platform_machine == 'arm64'",
+    "mlx-lm>=0.4.0; platform_machine == 'arm64'",
 ]
 
 [project.optional-dependencies]
@@ -40,11 +43,6 @@ test = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.12.0",
-]
-mlx = [
-    # MLX fine-tuning (Mac M-series only)
-    "mlx>=0.4.0; platform_machine == 'arm64'",
-    "mlx-lm>=0.4.0; platform_machine == 'arm64'",
 ]
 
 [build-system]
