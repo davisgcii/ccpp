@@ -168,18 +168,15 @@ class Stage1Router:
         # Format prompt with few-shot examples
         prompt_messages = self._format_prompt_with_few_shot(messages, current_text)
 
-        # Debug: Log prompt construction
-        logger.debug(f"[Stage1] few_shot_examples count: {len(self.few_shot_examples)}")
-        logger.debug(f"[Stage1] system_prompt length: {len(self.system_prompt)}")
-        logger.debug(f"[Stage1] prompt_messages count: {len(prompt_messages)}")
-        if len(prompt_messages) > 0:
-            logger.debug(f"[Stage1] First message role: {prompt_messages[0].get('role', 'N/A')}")
-            logger.debug(f"[Stage1] First message preview: {prompt_messages[0].get('content', '')[:100]}")
+        # Consolidated debug log for prompt construction
+        logger.debug(
+            f"[Stage1] prompt: examples={len(self.few_shot_examples)} "
+            f"sys_len={len(self.system_prompt)} msgs={len(prompt_messages)}"
+        )
 
         # Sequence log-likelihood mode: compute P(SAFE) vs P(FAIL) as full sequences
         # This bypasses the <think> token bias issue in Qwen3
         if self.sequence_loglikelihood_enabled and hasattr(self.backend, "extract_sequence_probs"):
-            logger.info("[Stage1] Using sequence log-likelihood mode")
             prob_safe, prob_risk = self.backend.extract_sequence_probs(
                 prompt_messages,
                 self.logit_config,

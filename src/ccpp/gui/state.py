@@ -1,8 +1,8 @@
 """State management for GUI client."""
 
+import logging
 import os
 import time
-from threading import RLock
 from typing import Optional
 from dotenv import load_dotenv
 from anthropic import Anthropic
@@ -13,9 +13,12 @@ from ccpp.infer.stage2_redactor import Stage2Redactor
 from ccpp.infer.heuristics import FastHeuristics
 from ccpp.config import load_config, get_stage1_config, get_stage2_config
 from ccpp.types import CharClassification, BufferMetadata
+from ccpp.gui.instrumented_lock import InstrumentedRLock
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class PIIClientState:
@@ -101,9 +104,17 @@ class PIIClientState:
         self.max_history_exchanges = 30
 
         # Thread safety for concurrent Gradio events
-        # Use RLock (reentrant) to allow nested lock acquisition
-        # (e.g., check_and_process_buffer -> add_to_conversation)
-        self.lock = RLock()
+        # Use InstrumentedRLock for debugging race conditions
+        # (logs contention and long holds - see docs/stream.md)
+        self.lock = InstrumentedRLock("state")
+
+        # Timer state tracking (for reduced logging)
+        self._last_should_process_reason: Optional[str] = None
+        self._tick_count = 0
+
+        # Pending classification queue: list of (space_position, text_snapshot, conversation_snapshot)
+        # Classifications are queued by on_user_type and processed by timer
+        self.pending_classifications: list[tuple[int, str, list]] = []
 
     def reset(self):
         """Reset state for new conversation."""
@@ -120,6 +131,7 @@ class PIIClientState:
             self.is_classifying = False
             self.current_char_data = []
             self.current_buffer_metadata = None
+            self.pending_classifications = []
             self.guard.reset()
 
     def add_to_conversation(self, message: dict):
@@ -141,39 +153,44 @@ class PIIClientState:
         Returns:
             True if stream break timeout reached and buffer not yet processed
         """
-        import logging
-        logger = logging.getLogger(__name__)
+        from ccpp.logging_config import TRACE
+
+        self._tick_count += 1
 
         with self.lock:
-            # Don't process if already processing or no buffer
+            # Determine reason for not processing (if any)
+            reason = None
+
             if self.is_processing:
-                logger.debug("[should_process_buffer] Already processing, returning False")
-                return False
-            if not self.buffer:
-                logger.debug("[should_process_buffer] No buffer, returning False")
-                return False
+                reason = "processing"
+            elif not self.buffer:
+                reason = "no_buffer"
+            elif self.is_classifying:
+                reason = "classifying"
+            elif self.pending_classifications:
+                reason = "pending_classifications"
+            elif self.buffer == self.processed_buffer:
+                reason = "already_processed"
+            elif self.last_input_time is None:
+                reason = "no_input_time"
+            else:
+                elapsed = time.time() - self.last_input_time
+                if elapsed < self.stream_break_timeout:
+                    reason = "waiting"
 
-            # Don't process if a classification is still running
-            if self.is_classifying:
-                logger.debug("[should_process_buffer] Classification in progress, returning False")
-                return False
-
-            # Check if buffer already processed
-            if self.buffer == self.processed_buffer:
-                logger.debug(f"[should_process_buffer] Buffer already processed ('{self.buffer[:30]}...'), returning False")
-                return False
+            # Only log on state transitions or every 20 ticks (10s at 500ms interval)
+            if reason != self._last_should_process_reason:
+                if reason:
+                    logger.log(TRACE, f"[timer] state={reason} buf_len={len(self.buffer)}")
+                self._last_should_process_reason = reason
+            elif self._tick_count % 20 == 0 and reason:
+                # Periodic heartbeat when idle
+                elapsed = time.time() - self.last_input_time if self.last_input_time else 0
+                logger.log(TRACE, f"[timer] heartbeat: state={reason} buf_len={len(self.buffer)} idle={elapsed:.1f}s")
 
             # NOTE: We removed the word-boundary check here. Previously we required
             # buffer[-1].isspace() before processing, but this caused a bug where
             # typing "hello world" (no trailing space) would never trigger stream break.
             # The 3s timeout should fire regardless of whether user ended on a space.
 
-            # Check if enough time has passed
-            if self.last_input_time is None:
-                logger.debug("[should_process_buffer] No last_input_time, returning False")
-                return False
-
-            elapsed = time.time() - self.last_input_time
-            should_process = elapsed >= self.stream_break_timeout
-            logger.debug(f"[should_process_buffer] elapsed={elapsed:.2f}s, timeout={self.stream_break_timeout}s, should_process={should_process}")
-            return should_process
+            return reason is None

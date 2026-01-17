@@ -214,26 +214,34 @@ class Stage2Redactor:
             RedactorOutput with extracted entities
         """
         import logging
+        import time
         logger = logging.getLogger(__name__)
 
         # Format prompt with few-shot examples
         prompt_messages = self._format_prompt_with_few_shot(messages, window_text)
 
-        logger.debug(f"[Stage2] few_shot_examples count: {len(self.few_shot_examples)}")
-        logger.debug(f"[Stage2] system_prompt length: {len(self.system_prompt)}")
-        logger.debug(f"[Stage2] window_text: {window_text[:100]}")
+        # Consolidated debug log
+        logger.debug(
+            f"[Stage2] prompt: examples={len(self.few_shot_examples)} "
+            f"sys_len={len(self.system_prompt)} window={len(window_text)}ch"
+        )
 
         # Generate entity extraction output
+        start_time = time.time()
         output = self.backend.generate(
             prompt_messages,
             self.generation_config,
         )
-
-        logger.info(f"[Stage2] Generated output: {repr(output[:200])}")
+        latency_ms = int((time.time() - start_time) * 1000)
 
         # Parse output to extract entities
         result = self._parse_extraction_output(output)
-        logger.info(f"[Stage2] Parsed {len(result.spans)} entities")
+
+        # Single consolidated log with all relevant info
+        logger.info(
+            f"[Stage2] entities={len(result.spans)} lat={latency_ms}ms "
+            f"output={repr(output[:80])}{'...' if len(output) > 80 else ''}"
+        )
         return result
 
     def _format_prompt_with_few_shot(

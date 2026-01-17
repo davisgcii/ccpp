@@ -130,7 +130,7 @@ class MLXBackend(LLMBackend):
             add_generation_prompt=True,
             enable_thinking=config.enable_thinking,
         )
-        logger.debug("[MLX GENERATE] prompt_len=%d prompt_tail=%r", len(prompt), prompt[-200:])
+        logger.debug(f"[MLX] generate: prompt_len={len(prompt)}")
 
         # Create sampler with temperature/top_p
         sampler_kwargs = {
@@ -235,18 +235,11 @@ class MLXBackend(LLMBackend):
         # Get logits at the last position (next token prediction)
         # Shape: [vocab_size]
         last_logits = logits[0, -1, :]
-        top_id = int(mx.argmax(last_logits).item())
-        top_token = self.tokenizer.decode([top_id])
-        top_logit = float(last_logits[top_id])
-        logger.info("  Top-1 token: id=%d token=%r logit=%.3f", top_id, top_token, top_logit)
 
         # Get token IDs for "SAFE" and "RISK"
         try:
             token_a_id = self._get_token_id(config.token_a)
             token_b_id = self._get_token_id(config.token_b)
-
-            logger.debug("[MLX LOGIT EXTRACTION] Token A: %r id=%d, Token B: %r id=%d", config.token_a, token_a_id, config.token_b, token_b_id)
-
         except ValueError as e:
             logger.error(f"[MLX] Token not found: {e}")
             # Fallback to safe default
@@ -255,32 +248,6 @@ class MLXBackend(LLMBackend):
         # Extract logits for these specific tokens
         logit_a = float(last_logits[token_a_id])
         logit_b = float(last_logits[token_b_id])
-
-        logger.info(
-            "  Raw logits: %s=%.3f, %s=%.3f, delta=%+.3f",
-            config.token_a,
-            logit_a,
-            config.token_b,
-            logit_b,
-            logit_b - logit_a,
-        )
-        if logger.isEnabledFor(logging.INFO):
-            logits_np = np.array(last_logits.tolist(), dtype=np.float32)
-            top_k = 5
-            top_indices = np.argpartition(logits_np, -top_k)[-top_k:]
-            top_indices = top_indices[np.argsort(logits_np[top_indices])[::-1]]
-            for idx in top_indices:
-                token = self.tokenizer.decode([int(idx)])
-                logger.info("  Top-%d token: id=%d token=%r logit=%.3f", top_k, int(idx), token, float(logits_np[idx]))
-        if logger.isEnabledFor(logging.DEBUG):
-            candidate_tokens = [config.token_a, config.token_b, "PASS", "YES", "NO", f" {config.token_a}", f" {config.token_b}"]
-            for token in candidate_tokens:
-                token_ids = self.tokenizer.encode(token, add_special_tokens=False)
-                if len(token_ids) != 1:
-                    continue
-                token_id = token_ids[0]
-                token_logit = float(last_logits[token_id])
-                logger.debug("  Token %r logit=%.3f", token, token_logit)
 
         # Apply softmax to get calibrated probabilities
         # softmax([a, b]) = [exp(a), exp(b)] / (exp(a) + exp(b))
@@ -292,8 +259,11 @@ class MLXBackend(LLMBackend):
         prob_a = exp_a / total
         prob_b = exp_b / total
 
-        logger.info(f"  Softmax probs: P({config.token_a})={prob_a:.3f}, P({config.token_b})={prob_b:.3f}")
-        logger.info(f"  Final: P({config.token_b})={prob_b:.3f} (RISK score)")
+        # Single consolidated log
+        logger.info(
+            f"[MLX_LOGIT] P({config.token_a})={prob_a:.3f} P({config.token_b})={prob_b:.3f} "
+            f"delta={logit_b - logit_a:+.3f} lat={latency_ms}ms"
+        )
 
         log_prompt_event({
             "backend": "mlx",
@@ -467,13 +437,6 @@ class MLXBackend(LLMBackend):
         logprob_a = float(token_logits_a[token_a_id] - mx.logsumexp(token_logits_a))
         logprob_b = float(token_logits_b[token_b_id] - mx.logsumexp(token_logits_b))
 
-        logger.info(
-            "[MLX PREFILL SEQ PROBS] logprob(%s)=%.3f, logprob(%s)=%.3f, delta=%.3f",
-            config.token_a, logprob_a,
-            config.token_b, logprob_b,
-            logprob_b - logprob_a,
-        )
-
         # Convert log-probs to probabilities via softmax
         max_logprob = max(logprob_a, logprob_b)
         exp_a = np.exp(logprob_a - max_logprob)
@@ -483,10 +446,10 @@ class MLXBackend(LLMBackend):
         prob_a = float(exp_a / total)
         prob_b = float(exp_b / total)
 
+        # Single consolidated log for sequence probs
         logger.info(
-            "[MLX PREFILL SEQ PROBS] P(%s)=%.3f, P(%s)=%.3f",
-            config.token_a, prob_a,
-            config.token_b, prob_b,
+            f"[MLX_SEQ] P({config.token_a})={prob_a:.3f} P({config.token_b})={prob_b:.3f} "
+            f"delta={logprob_b - logprob_a:.3f} lat={latency_ms}ms"
         )
 
         # Build prompt for logging

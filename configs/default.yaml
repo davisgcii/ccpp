@@ -590,7 +590,25 @@ masking:
 
 # Logging and Monitoring
 logging:
-  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  # Note: Use DEBUG for development, INFO for production
+  level: INFO
+
+  # Enable TRACE level (below DEBUG) for ultra-verbose logging
+  # Useful for debugging timer tick issues and race conditions
+  # Warning: Very verbose - produces ~100+ lines per classification
+  trace_enabled: false
+
+  # Log file path (set to null to disable file logging)
+  log_file: /tmp/gui_debug.log
+
+  # Suppress verbose third-party loggers (httpx, httpcore, anthropic)
+  suppress_httpx: true
+
+  # Use structured format with logger names (useful for filtering)
+  structured: false
+
+  # Legacy options (kept for compatibility)
   log_decisions: true  # Log masking decisions
   log_latency: true  # Log per-token latency
 

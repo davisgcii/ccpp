@@ -45,7 +45,8 @@ Streaming text → HoldbackBuffer → Fast Heuristics → Stage 1 Router → EMA
 - **Model**: mlx-community/Qwen3-0.6B-4bit (MLX) or qwen3:0.6b (Ollama)
 - **Method**: Sequence log-likelihood (MLX) or native logprobs API (Ollama)
 - **Output**: Calibrated probability P(FAIL) ∈ [0,1]
-- **Speed**: ~0.5-1s per classification (MLX with 0.6B-4bit), ~300-500ms (Ollama)
+- **Speed**: ~2-2.5s per classification (MLX with 0.6B-4bit), ~300-500ms (Ollama)
+- **Note**: Classifications are queued and processed by timer, not blocking keystrokes
 
 ### Stage 2: Entity Redactor
 - **Backend**: MLX (default, Apple Silicon) or Ollama (cross-platform)

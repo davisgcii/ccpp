@@ -26,6 +26,7 @@ self.processed_buffer = ""          # Buffer text when last sent to LLM
 self.is_processing = False          # True while calling Anthropic API
 self.is_classifying = False         # True while running Stage 1 classification
 self.last_classified_len = 0        # Length of buffer at last classification
+self.pending_classifications = []   # Queue: [(space_pos, text, conversation)]
 self.lock = RLock()                 # Protects all state access
 ```
 
@@ -38,6 +39,7 @@ RETURNS FALSE IF:
 ├── is_processing == True           "Already processing, returning False"
 ├── buffer == ""                    "No buffer, returning False"
 ├── is_classifying == True          "Classification in progress, returning False"
+├── pending_classifications != []   "Pending classifications, returning False"  ← NEW
 ├── buffer == processed_buffer      "Buffer already processed, returning False"
 ├── last_input_time == None         "No last_input_time, returning False"
 └── elapsed < stream_break_timeout  "elapsed=Xs, timeout=3.0s, should_process=False"
@@ -46,35 +48,53 @@ RETURNS TRUE IF:
 └── elapsed >= stream_break_timeout "elapsed=Xs, timeout=3.0s, should_process=True"
 ```
 
-**Critical issue**: This method acquires the lock. If `on_user_type` holds the lock (during classification), this blocks until lock is released.
+**Note**: The `pending_classifications` check ensures stream break waits for all queued classifications to complete.
 
 ---
 
 ## File: `src/ccpp/gui/app.py`
 
-### Function: `on_user_type()` (lines 106-257)
+### Function: `on_user_type()` - FAST, NON-BLOCKING
 
-Triggered by Gradio on every keystroke (batched).
+Triggered by Gradio on every keystroke. Now returns immediately after queuing work.
 
 ```
 FLOW:
-1. Acquire state.lock                           # BLOCKS if held elsewhere
+1. Acquire state.lock
 2. Update state.buffer = user_input
 3. Update state.last_input_time = time.time()
 4. If buffer empty → clear history, return
-5. Find all NEW spaces since last_classified_len
-6. For EACH new space position:                 # SEQUENTIAL, each ~2-3s
-   a. state.is_classifying = True
-   b. risk_score = state.stage1.classify(...)   # BLOCKING CALL (~2-3s)
-   c. state.is_classifying = False
-   d. Update EMA, risk_history
-7. Update last_classified_len
-8. Generate UI components (risk_html, chart)
-9. Release lock (implicit on return)
-10. Return updated UI
+5. Find all NEW spaces since last queued position
+6. Queue classifications to pending_classifications
+7. Generate UI components (risk_html, chart)
+8. Release lock, return
 ```
 
-**Critical issue**: Lock is held for ENTIRE duration of step 6 loop. If user typed 4 spaces, this holds the lock for ~10-12 seconds while all 4 classifications run sequentially.
+**Key improvement**: No blocking classification calls. Handler returns in ~10ms.
+
+### Function: `process_pending_classifications()` - PROCESSES QUEUE
+
+Called by timer_tick to process ONE classification from the queue.
+
+```
+FLOW:
+1. Acquire lock, pop first item from pending_classifications
+2. Release lock
+3. Run classification (~2.5s, lock NOT held)
+4. Acquire lock, apply results if buffer still valid
+5. Release lock, return
+```
+
+### Function: `timer_tick()` - MAIN TIMER HANDLER
+
+Called every 500ms. Processes classifications then checks for stream break.
+
+```
+FLOW:
+1. Call process_pending_classifications()
+2. If classification was processed → return (update UI)
+3. Else call check_and_process_buffer() for stream break check
+```
 
 ### Function: `check_and_process_buffer()` (lines 260-478)
 
@@ -106,29 +126,31 @@ FLOW:
 19. Return UI updates
 ```
 
-### Gradio Event Wiring (lines 601-616)
+### Gradio Event Wiring
 
 ```python
-# User typing - fires on every character change
+# User typing - fires on every character change (FAST, non-blocking)
 current_display.input(
     fn=lambda text: on_user_type(text, state),
     inputs=current_display,
     outputs=[user_input_hidden, risk_indicators, risk_chart, status],
 )
 
-# Timer - fires every 0.5s
+# Timer - fires every 0.5s (processes classifications + stream break)
 timer = gr.Timer(value=0.5)
 timer.tick(
-    fn=lambda: check_and_process_buffer(state),
+    fn=lambda: timer_tick(state),  # Calls process_pending_classifications + check_and_process_buffer
     outputs=[conversation_history, current_display, ...],
 )
 ```
 
 ---
 
-## Race Condition Analysis
+## Race Condition Analysis (Historical - Now Fixed)
 
-### Timeline of the Bug
+The following describes the race condition that existed before the queue-based fix was applied.
+
+### Timeline of the Bug (Before Fix)
 
 Based on the logs provided:
 
@@ -165,17 +187,19 @@ Based on the logs provided:
              User's additional keystrokes (after "w") are LOST
 ```
 
-### The Problem
+### The Problem (Now Fixed)
 
-1. **Lock held too long**: `on_user_type` holds the lock during ALL sequential classifications (10+ seconds)
+1. **Lock held too long**: `on_user_type` held the lock during ALL sequential classifications (10+ seconds)
 
-2. **Events queue up**: During lock hold, both timer ticks AND user keystrokes queue up waiting for lock
+2. **Events queue up**: During lock hold, both timer ticks AND user keystrokes queued up waiting for lock
 
-3. **Race on release**: When lock is released, timer and keystroke events race. Timer can win.
+3. **Race on release**: When lock was released, timer and keystroke events raced. Timer could win.
 
-4. **Stale buffer**: Timer processes whatever was in buffer when `on_user_type` started (not the user's current input)
+4. **Stale buffer**: Timer processed whatever was in buffer when `on_user_type` started (not the user's current input)
 
 5. **Lost input**: User typed "hi i'm trying to find where my order is thanks" but only "hi i'm trying to find w" was in the buffer when stream break fired. The rest was in queued events that never got a chance to run.
+
+**This issue is now resolved** by the queue-based architecture described in the "Fix Applied" section.
 
 ---
 
@@ -270,58 +294,55 @@ def should_process_buffer(self) -> bool:
 
 ---
 
-## Current State Machine
+## Current State Machine (After Fix)
 
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │                                                 │
-                    ▼                                                 │
-┌──────────┐    keystroke    ┌──────────────┐                        │
-│  IDLE    │ ──────────────► │   TYPING     │                        │
-│          │                 │              │                        │
-└──────────┘                 └──────┬───────┘                        │
-     ▲                              │                                │
-     │                              │ space detected                 │
-     │                              ▼                                │
-     │                       ┌──────────────┐                        │
-     │                       │ CLASSIFYING  │ (is_classifying=True)  │
-     │                       │   (2-3s)     │ LOCK HELD              │
-     │                       └──────┬───────┘                        │
-     │                              │                                │
-     │                              │ done                           │
-     │                              ▼                                │
-     │                       ┌──────────────┐                        │
-     │                       │   TYPING     │                        │
-     │                       │  (updated)   │                        │
-     │                       └──────┬───────┘                        │
-     │                              │                                │
-     │         3s timeout           │ more spaces?                   │
-     │         (timer wins race)    │                                │
-     │              │               ▼                                │
-     │              │        ┌──────────────┐                        │
-     │              │        │ CLASSIFYING  │ (loop continues)       │
-     │              │        └──────────────┘                        │
-     │              │               │                                │
-     │              ▼               │ all spaces done                │
-     │       ┌──────────────┐       │                                │
-     │       │STREAM BREAK  │◄──────┘ (lock released, timer wins)    │
-     │       │ DETECTED     │                                        │
-     │       └──────┬───────┘                                        │
-     │              │                                                │
-     │              ▼                                                │
-     │       ┌──────────────┐                                        │
-     │       │ PROCESSING   │ (is_processing=True)                   │
-     │       │ (Stage 2 +   │                                        │
-     │       │  Anthropic)  │                                        │
-     │       └──────┬───────┘                                        │
-     │              │                                                │
-     │              │ done, input cleared                            │
-     └──────────────┘                                                │
-                    │                                                │
-                    │ (queued keystrokes finally run,                │
-                    │  but input was cleared - INPUT LOST!)          │
-                    └────────────────────────────────────────────────┘
+┌──────────┐    keystroke    ┌──────────────┐
+│  IDLE    │ ──────────────► │   TYPING     │ (on_user_type queues work)
+│          │                 │              │
+└──────────┘                 └──────┬───────┘
+     ▲                              │
+     │                              │ space detected → queue classification
+     │                              │ (returns immediately, no blocking!)
+     │                              ▼
+     │                       ┌──────────────┐
+     │                       │   TYPING     │ (pending_classifications > 0)
+     │                       │  (queued)    │
+     │                       └──────┬───────┘
+     │                              │
+     │                              │ timer tick (every 500ms)
+     │                              ▼
+     │                       ┌──────────────┐
+     │                       │ CLASSIFYING  │ (process ONE from queue)
+     │                       │   (2-3s)     │ (doesn't block keystrokes)
+     │                       └──────┬───────┘
+     │                              │
+     │                              │ done → apply result
+     │                              │ → next tick continues queue
+     │                              ▼
+     │                       ┌──────────────┐
+     │    more keystrokes    │   TYPING     │
+     │    ◄────────────────  │  (updated)   │
+     │    (captured!)        └──────┬───────┘
+     │                              │
+     │                              │ queue empty + 3s timeout
+     │                              ▼
+     │                       ┌──────────────┐
+     │                       │STREAM BREAK  │ (all words classified!)
+     │                       │ DETECTED     │
+     │                       └──────┬───────┘
+     │                              │
+     │                              ▼
+     │                       ┌──────────────┐
+     │                       │ PROCESSING   │ (Stage 2 + Anthropic)
+     │                       │              │
+     │                       └──────┬───────┘
+     │                              │
+     │                              │ done, input cleared
+     └──────────────────────────────┘
 ```
+
+**Key improvement**: Keystrokes are never blocked. The queue ensures all words get classified before stream break.
 
 ---
 
@@ -340,74 +361,81 @@ def should_process_buffer(self) -> bool:
 
 ## Fix Applied
 
-### Solution: Release Lock During Classification (Option B)
+### Solution: Queue-Based Classification (Non-Blocking Handler)
 
-The `on_user_type()` function was restructured into three phases:
+The architecture was restructured to use a classification queue:
+
+1. **`on_user_type()`** is now fast and non-blocking - it only queues work
+2. **`timer_tick()`** processes ONE classification per tick (every 500ms)
+3. **`should_process_buffer()`** blocks stream break while queue is non-empty
 
 ```
-PHASE 1: Update buffer (LOCK HELD - brief)
+on_user_type() - FAST, NON-BLOCKING:
 ├── Update state.buffer = user_input
 ├── Update state.last_input_time
-├── Find space positions to classify
-├── Snapshot conversation
-├── Set is_classifying = True
-└── RELEASE LOCK
+├── Find NEW space positions since last queued
+├── Queue classifications to pending_classifications
+└── Return immediately (no blocking!)
 
-PHASE 2: Run classifications (LOCK NOT HELD)
-├── For each space position:
-│   └── risk_score = stage1.classify(snapshot, text)
-└── Collect results in list
+timer_tick() - CALLED EVERY 500ms:
+├── If pending_classifications not empty:
+│   ├── Pop ONE classification from queue
+│   ├── Run classification (2.5s, but doesn't block events)
+│   ├── Apply result to state
+│   └── Return (let next tick continue)
+└── Else check for stream break:
+    └── Call check_and_process_buffer()
 
-PHASE 3: Apply results (LOCK HELD - brief)
-├── Set is_classifying = False
-├── Check if buffer still valid (not deleted/changed)
-├── Apply classification results to state
-├── Update last_classified_len
-├── Generate UI components
-└── Return current buffer state
+should_process_buffer() - STREAM BREAK GATING:
+├── Return False if is_processing
+├── Return False if buffer empty
+├── Return False if is_classifying
+├── Return False if pending_classifications not empty  ← NEW
+├── Return False if buffer already processed
+├── Return False if timeout not reached
+└── Return True (trigger stream break)
 ```
 
 ### Key Changes
 
-1. **Lock hold time reduced from 10+ seconds to ~10ms**
-2. **Other events can update buffer during classification**
-3. **Stale results are discarded** if buffer changed incompatibly
-4. **Stream break can check is_classifying** which is set atomically
+1. **Handler never blocks**: `on_user_type` returns immediately after queuing
+2. **All keystrokes captured**: Gradio events don't pile up waiting for lock
+3. **Stream break waits for queue**: Won't fire until all words classified
+4. **Timer drives classification**: One classification per 500ms tick
 
 ### New Timeline (After Fix)
 
 ```
-00:45:46.396  on_user_type receives "hi " (3 chars)
-             Lock acquired, buffer updated, lock released
-             Classification starts WITHOUT lock
-
-00:45:46.450  User types more - on_user_type receives "hi i"
-             Lock acquired, buffer updated to "hi i", lock released
-             No new spaces, returns immediately
-
-00:45:46.500  User types more - on_user_type receives "hi i'm "
-             Lock acquired, buffer updated, lock released
-             Classification starts for new space
-
-00:45:48.885  First classification done, results applied
-
-...classifications proceed, user can keep typing...
-
-00:46:00.468  Timer tick checks should_process_buffer
-             is_classifying = False
-             elapsed > 3s since LAST keystroke
-             Buffer contains FULL user input
+00:45:46.396  on_user_type receives "hi " → queues pos=2, returns immediately
+00:45:46.450  on_user_type receives "hi i" → no new space, returns
+00:45:46.500  on_user_type receives "hi i'm " → queues pos=6, returns
+00:45:46.550  Timer tick → starts classifying pos=2
+00:45:46.600  on_user_type receives "hi i'm trying " → queues pos=13, returns
+...keystrokes continue, all captured...
+00:45:49.050  Timer tick → classification for pos=2 done, applies result
+00:45:49.550  Timer tick → starts classifying pos=6
+...timer processes queue one at a time...
+00:46:05.000  User stops typing
+00:46:08.000  Timer tick → queue empty, elapsed > 3s
              Stream break fires with COMPLETE buffer
+```
+
+### State Variables Added
+
+```python
+# In PIIClientState.__init__():
+self.pending_classifications: list[tuple[int, str, list]] = []
+# Each entry: (space_position, text_to_classify, conversation_snapshot)
 ```
 
 ---
 
 ## Remaining Considerations
 
-1. **Classification ordering**: Multiple concurrent on_user_type events could finish out of order. The `last_classified_len = max(...)` logic handles this.
+1. **Classification ordering**: Queue is FIFO, so classifications happen in order of spaces detected.
 
-2. **Buffer prefix check**: If user deletes text during classification, results are discarded. This is correct behavior.
+2. **Buffer changes during classification**: If user deletes text, stale classifications are skipped when their result would be applied.
 
-3. **EMA accumulation**: EMA updates happen in Phase 3 under lock, so they're still atomic and ordered.
+3. **Chart reset**: `archived_risk_history` is now cleared at stream break so the chart resets between messages.
 
-The fundamental issue (lock held during blocking classification) is now resolved.
+The fundamental issue (blocking handler causing event coalescing) is now resolved.

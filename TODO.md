@@ -102,16 +102,17 @@ Each record needs:
 - [ ] Compare accuracy: logprobs vs structured outputs vs text generation
 
 ### Polish
-- [ ] Manual GUI testing (end-to-end flow)
+- [x] Fix stream break timing bug (classifications now queued, not blocking)
+- [x] Fix ASCII chart reset between messages
 - [ ] Add `has_logit_extraction` flag to ApprovedModel enum
 - [ ] Unify prompt building to template-only (remove legacy few-shot scaffolding)
 
-### Performance (Maybe Later)
-- [ ] Parallel classification using ThreadPoolExecutor or multiprocessing
-  - Currently classifications run sequentially (~2.5s each)
-  - 10 word boundaries = 25s blocking time before stream break
-  - Could submit classifications to thread pool as spaces are detected
-  - Unknown: whether MLX can parallelize GPU work or serializes internally
+### Performance
+- [x] Non-blocking classification with queue-based processing
+  - Classifications are queued by `on_user_type` (fast, non-blocking)
+  - Timer processes ONE classification per tick (every 500ms)
+  - Stream break waits for `pending_classifications` queue to empty
+  - Fixes race condition where stream break could fire before all words classified
   - See `docs/stream.md` for architecture analysis
 
 ### Documentation

@@ -109,28 +109,20 @@ Comprehensive tests for configuration system:
 
 ## Test Results
 
-### Before
-- 92 tests passing (all unit tests with mocks)
-- No integration tests
-- No configuration system
+All tests pass. Run `uv run pytest` to verify.
 
-### After
-- **113 tests passing** (92 original + 21 config tests)
-- **6 integration tests** (skipped by default, run when marked)
-- Full configuration system with environment support
-
-### Test Breakdown
+### Test Organization
 ```
-tests/test_heuristics.py:        13 passed
-tests/test_llm_harness.py:       22 passed (all mocked)
-tests/test_stage1_router.py:     16 passed
-tests/test_stage2_redactor.py:   23 passed
-tests/test_types.py:             18 passed
-tests/test_config.py:            21 passed ← NEW
-tests/test_integration.py:        6 skipped (integration) ← NEW
-
-Total: 113 passed, 6 skipped
+tests/test_heuristics.py:        Fast heuristic patterns
+tests/test_llm_harness.py:       LLM backends (mocked)
+tests/test_stage1_router.py:     Stage 1 classification
+tests/test_stage2_redactor.py:   Stage 2 redaction
+tests/test_types.py:             Core data types
+tests/test_config.py:            Configuration system
+tests/test_integration.py:       Integration tests (skipped by default)
 ```
+
+Run `uv run pytest -m integration` for integration tests (requires services).
 
 ## Usage Examples
 
