@@ -12,9 +12,9 @@ A CC++-inspired streaming exchange classifier for PII detection and masking in b
 - Ollama backend available as cross-platform alternative (native logprobs)
 - GUI client with real-time visualization
 - Fast heuristics (regex patterns)
+- Training data generation pipeline (`data/scripts/`)
 
 ⏸️ **Not Started**:
-- Training data generation
 - Model fine-tuning
 - Evaluation and calibration
 

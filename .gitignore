@@ -61,19 +61,10 @@ checkpoints/
 *.mlx
 
 # Datasets (large files)
-data/raw/
-data/processed/
-data/augmented/
-*.jsonl
+data/synthetic/*.jsonl
+data/training/*.jsonl
 *.parquet
 *.arrow
-*.csv
-
-# Keep directory structure but ignore contents
-data/raw/.gitkeep
-data/processed/.gitkeep
-data/augmented/.gitkeep
-data/training/.gitkeep
 
 # Logs
 *.log

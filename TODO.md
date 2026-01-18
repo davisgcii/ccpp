@@ -17,16 +17,22 @@ CC++-inspired streaming PII masker for black-box LLMs.
 - 131 unit/integration tests passing
 - Prompt templates with `Answer:` ending (prevents model echo)
 - Qwen3 `think=False` integration
+- Training data generation pipeline (`data/scripts/`)
+  - Synthetic conversation generator using Claude Haiku
+  - Stage 1 formatter (speculative prefix classification)
+  - Stage 2 formatter (entity extraction training)
+  - Constitution loader for PII definitions
 
 ### Not Started
 - Structured outputs for reliable SAFE/FAIL classification
-- Training data generation
 - Model fine-tuning
 - Evaluation and calibration
 
 ---
 
-## Phase 3: Synthetic Data Generation
+## Phase 3: Synthetic Data Generation ✅
+
+**Completed** - Pipeline implemented in `data/scripts/`
 
 ### Stage 1 Training Data
 Each record needs:
@@ -43,11 +49,12 @@ Each record needs:
 - `target_output`: `PASS` or `MASK "entity" category`
 
 ### Generator Tasks
-- [ ] Create prompts using placeholders (`<EMAIL>`, `<PHONE>`, `<NAME>`, etc.)
-- [ ] Hydrate placeholders with synthetic PII
-- [ ] Generate buffer-scoped labels for Stage 1
-- [ ] Generate benign "near misses" (example.com, test keys)
-- [ ] Output JSONL train/val splits
+- [x] Create prompts using placeholders (`<EMAIL>`, `<PHONE>`, `<NAME>`, etc.)
+- [x] Hydrate placeholders with synthetic PII (Claude Haiku generates realistic voice conversations)
+- [x] Generate buffer-scoped labels for Stage 1 (formatter.py)
+- [x] Generate Stage 2 entity extraction training data (stage2_formatter.py)
+- [ ] Generate benign "near misses" (example.com, test keys) - needs more examples
+- [ ] Output JSONL train/val splits with proper ratio
 
 ---
 

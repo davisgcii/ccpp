@@ -100,11 +100,17 @@ src/ccpp/
 └── config.py        # Configuration system
 scripts/
 └── gui_client.py    # Interactive GUI client
+data/
+├── scripts/         # Training data generation pipeline
+├── constitutions/   # PII definitions for training data
+├── synthetic/       # Raw generated conversations
+├── training/        # Formatted training data (stage1, stage2)
+└── test_output/     # Test script output (gitignored)
 configs/
 └── default.yaml     # Default configuration (MLX backend)
 tests/               # Test suite
 docs/                # Additional documentation
-constitutions/       # PII definitions and allowlists
+constitutions/       # PII definitions for inference
 ```
 
 ## Configuration
@@ -128,6 +134,29 @@ Key settings:
 - GUI is the primary interface: `scripts/gui_client.py`
 - Logs available at `/tmp/gui_debug.log` and `/tmp/prompt_logs.jsonl`
 - All 131 tests should pass: `uv run pytest`
+
+## Dataset Generation
+
+Generate synthetic training data for PII classification models.
+
+```bash
+# Test the pipeline (generates conversations + shows formatted training examples)
+uv run python -m data.scripts.test_generator --count 5 --output-dir data/test_output
+
+# Generate sample conversations for validation
+uv run python -m data.scripts.main sample --count 50
+
+# Full pipeline: generate + format + split
+uv run python -m data.scripts.main all --count 1000
+```
+
+**Pipeline stages:**
+1. **Generate** - Claude Haiku creates voice/phone conversations with labeled PII
+2. **Format Stage 1** - Creates speculative classification examples (prefix training)
+3. **Format Stage 2** - Creates entity extraction examples (`MASK "entity" category`)
+4. **Split** - Creates train/val splits
+
+See `data/README.md` for detailed format documentation.
 
 ## Reference
 - `TODO.md` - Progress tracking and next steps
