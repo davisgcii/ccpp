@@ -215,8 +215,8 @@ class RedactorOutput:
 
         Expected formats:
             PASS
-            MASK "entity" pii/direct
-            MASK "entity1" pii/direct; MASK "entity2" credentials
+            MASK "entity" contact
+            MASK "entity1" contact; MASK "entity2" credentials
         """
         s = s.strip()
         if s.upper() == "PASS":
@@ -416,7 +416,7 @@ class HeuristicMatch:
     start: int  # Char offset (for reference/debugging)
     end: int  # Char offset (for reference/debugging)
     confidence: float = 1.0  # How confident the heuristic is (1.0 = regex match)
-    suggested_category: PIICategory = PIICategory.PII_DIRECT
+    suggested_category: PIICategory = PIICategory.CONTACT
 
     def to_mask_span(self) -> MaskSpan:
         """Convert to MaskSpan for redaction."""

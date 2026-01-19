@@ -104,7 +104,7 @@ def stage2_config() -> Dict:
                 {
                     "messages": [],
                     "window_text": "Contact me at alice@company.com",
-                    "output": 'MASK "alice@company.com" pii/direct',
+                    "output": 'MASK "alice@company.com" contact',
                 },
                 {
                     "messages": [],
@@ -121,8 +121,8 @@ def stage2_config() -> Dict:
 def sample_mask_spans() -> List[MaskSpan]:
     """Sample mask spans for testing."""
     return [
-        MaskSpan(entity_text="john.doe@company.com", category=PIICategory.PII_DIRECT),
-        MaskSpan(entity_text="555-123-4567", category=PIICategory.PII_DIRECT),
+        MaskSpan(entity_text="john.doe@company.com", category=PIICategory.CONTACT),
+        MaskSpan(entity_text="555-123-4567", category=PIICategory.CONTACT),
     ]
 
 

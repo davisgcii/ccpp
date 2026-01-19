@@ -100,7 +100,7 @@ class FastHeuristics:
                     start=match.start(),
                     end=match.end(),
                     confidence=1.0,
-                    suggested_category=PIICategory.PII_DIRECT,
+                    suggested_category=PIICategory.CONTACT,
                 )
             )
         return matches

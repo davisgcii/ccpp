@@ -13,10 +13,10 @@ A CC++-inspired streaming exchange classifier for PII detection and masking in b
 - GUI client with real-time visualization
 - Fast heuristics (regex patterns)
 - Training data generation pipeline (`data/scripts/`)
+- LoRA finetuning for Stage 1 (classifier) and Stage 2 (redactor)
 
-⏸️ **Not Started**:
-- Model fine-tuning
-- Evaluation and calibration
+⏸️ **In Progress**:
+- Evaluation and calibration refinement
 
 See [TODO.md](TODO.md) for detailed progress tracking.
 
@@ -80,8 +80,8 @@ CC++ uses a flexible YAML-based configuration system. Default backend is **MLX**
 - **Stream break timeout**: `2000ms` (2 seconds) - wait time before masking decision
 - **EMA beta**: `0.85` - smoothing factor for risk scores
 - **Thresholds**:
-  - `t_high: 0.6` - escalate to Stage 2 when EMA crosses this
-  - `t_low: 0.3` - de-escalate when EMA drops below this
+  - `t_high: 0.4` - escalate to Stage 2 when EMA crosses this
+  - `t_low: 0.2` - de-escalate when EMA drops below this
   - `risk_threshold: 0.7` - individual token P(RISK) threshold for immediate flagging
 - **Heuristics**: Enabled (regex patterns for emails, phones, SSNs, API keys)
 

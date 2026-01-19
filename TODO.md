@@ -22,11 +22,14 @@ CC++-inspired streaming PII masker for black-box LLMs.
   - Stage 1 formatter (speculative prefix classification)
   - Stage 2 formatter (entity extraction training)
   - Constitution loader for PII definitions
+- LoRA finetuning pipeline with mlx-lm
+  - Stage 1 adapter: `models/adapters/stage1/qwen3-0.6b-pii-classifier/`
+  - Stage 2 adapter: `models/adapters/stage2/qwen3-1.7b-pii-redactor/`
+- Wandb integration for training loss visualization
 
-### Not Started
+### In Progress
+- Evaluation and calibration refinement
 - Structured outputs for reliable SAFE/FAIL classification
-- Model fine-tuning
-- Evaluation and calibration
 
 ---
 
@@ -75,7 +78,7 @@ Each record needs:
 
 ---
 
-## Phase 5: Training
+## Phase 5: Training ✅
 
 **Framework**: mlx-lm native fine-tuning with LoRA adapters (Apple Silicon optimized)
 
@@ -101,16 +104,16 @@ think scaffold. Training teaches the model to output the label directly without
 generating thinking content. The `extract_sequence_probs` method in MLX backend
 computes P(SAFE) vs P(FAIL) as full sequences, bypassing generation entirely.
 
-### Stage 1 (Logit-Based Router)
+### Stage 1 (Logit-Based Router) ✅
 - Model: `mlx-community/Qwen3-0.6B-4bit`
 - Output: `models/adapters/stage1/qwen3-0.6b-pii-classifier/`
-- [ ] Train Stage 1 adapter with mlx-lm
+- [x] Train Stage 1 adapter with mlx-lm (1000 iters, val_loss 5.38→0.028)
 - [ ] Validate SAFE/FAIL accuracy on held-out test set
 
-### Stage 2 (Entity Redactor)
+### Stage 2 (Entity Redactor) ✅
 - Model: `Qwen/Qwen3-1.7B-MLX-8bit`
 - Output: `models/adapters/stage2/qwen3-1.7b-pii-redactor/`
-- [ ] Train Stage 2 adapter with mlx-lm
+- [x] Train Stage 2 adapter with mlx-lm (1500 iters, val_loss 0.28→0.070)
 - [ ] Validate entity extraction accuracy
 
 ### Training Commands

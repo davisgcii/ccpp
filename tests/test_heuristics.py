@@ -27,7 +27,7 @@ class TestFastHeuristics:
         assert len(matches) == 1
         assert matches[0].pattern_name == "email"
         assert matches[0].matched_text == "john.doe@company.com"
-        assert matches[0].suggested_category == PIICategory.PII_DIRECT
+        assert matches[0].suggested_category == PIICategory.CONTACT
         assert matches[0].confidence >= 0.9
 
     def test_detect_multiple_emails(self, heuristics):

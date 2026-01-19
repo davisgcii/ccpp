@@ -116,8 +116,8 @@ streaming:
   reset_ema_on_stream_break: false  # Reset EMA at breaks?
 
   # Hysteresis thresholds
-  t_high: 0.6                     # EMA threshold to escalate to Stage 2
-  t_low: 0.3                      # EMA threshold to de-escalate
+  t_high: 0.4                     # EMA threshold to escalate to Stage 2
+  t_low: 0.2                      # EMA threshold to de-escalate
   risk_threshold: 0.7             # Individual token P(RISK) threshold
 ```
 
@@ -145,9 +145,14 @@ masking:
   default_format: "[{category}]"   # Default mask format
 
   category_formats:                 # Category-specific formats
-    pii/direct: "[PII/DIRECT]"
-    credentials: "[CREDENTIALS]"
+    person: "[PERSON]"
+    contact: "[CONTACT]"
+    gov_id: "[GOV_ID]"
+    identifier: "[IDENTIFIER]"
+    location: "[LOCATION]"
     financial: "[FINANCIAL]"
+    credentials: "[CREDENTIALS]"
+    medical: "[MEDICAL]"
 
   case_sensitive: true              # Match entities case-sensitively
 ```
@@ -244,8 +249,8 @@ Override thresholds for higher sensitivity:
 
 ```yaml
 streaming:
-  t_high: 0.4                       # Lower threshold (more sensitive)
-  t_low: 0.2
+  t_high: 0.3                       # Lower threshold (more sensitive)
+  t_low: 0.15
   risk_threshold: 0.5               # Lower risk threshold
 ```
 
@@ -255,8 +260,8 @@ Override thresholds for lower sensitivity:
 
 ```yaml
 streaming:
-  t_high: 0.8                       # Higher threshold (less sensitive)
-  t_low: 0.5
+  t_high: 0.6                       # Higher threshold (less sensitive)
+  t_low: 0.3
   risk_threshold: 0.85
 ```
 
@@ -306,7 +311,7 @@ heuristics:
 # configs/assistant.yaml
 streaming:
   stream_break_timeout_ms: 1500    # Responsive but not too aggressive
-  t_high: 0.5                      # Lower threshold for higher sensitivity
+  t_high: 0.35                     # Lower threshold for higher sensitivity
   ema_beta: 0.8                    # Less smoothing for faster reaction
 ```
 
@@ -314,13 +319,13 @@ streaming:
 
 **Tuning guidelines:**
 
-| Scenario | Timeout | Buffer Size | Threshold | Why |
-|----------|---------|-------------|-----------|-----|
-| Fast speech | 1000ms | 256 | 0.6 (default) | Quick decisions for rapid speakers |
-| Normal (default) | 2000ms | 512 | 0.6 | Handles typical voice pauses |
-| Slow speech | 3000ms | 768 | 0.6 | Accommodates thinking pauses |
-| High noise | 1500ms | 512 | 0.7 | Faster decisions, higher confidence |
-| Low latency | 1000ms | 256 | 0.5 | Quick response, more sensitive |
+| Scenario | Timeout | Buffer Size | t_high | Why |
+|----------|---------|-------------|--------|-----|
+| Fast speech | 1000ms | 256 | 0.4 (default) | Quick decisions for rapid speakers |
+| Normal (default) | 2000ms | 512 | 0.4 | Handles typical voice pauses |
+| Slow speech | 3000ms | 768 | 0.4 | Accommodates thinking pauses |
+| High noise | 1500ms | 512 | 0.5 | Faster decisions, higher confidence |
+| Low latency | 1000ms | 256 | 0.3 | Quick response, more sensitive |
 
 ## Customizing Configs
 

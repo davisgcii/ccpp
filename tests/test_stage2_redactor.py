@@ -35,7 +35,7 @@ class TestStage2RedactorMockMode:
         assert len(output.spans) >= 1
         email_span = output.spans[0]
         assert email_span.entity_text == "john.doe@company.com"
-        assert email_span.category == PIICategory.PII_DIRECT
+        assert email_span.category == PIICategory.CONTACT
 
     def test_redact_phone(self, redactor):
         """Test redaction of phone number."""
@@ -45,7 +45,7 @@ class TestStage2RedactorMockMode:
         assert len(output.spans) >= 1
         phone_span = output.spans[0]
         assert phone_span.entity_text == "555-234-5678"
-        assert phone_span.category == PIICategory.PII_DIRECT
+        assert phone_span.category == PIICategory.CONTACT
 
     def test_redact_multiple_entities(self, redactor, sample_pii_text):
         """Test redaction of multiple entities."""
@@ -70,7 +70,7 @@ class TestStage2RedactorMockMode:
         if len(output.spans) > 0:
             masked_text = output.apply_masks(text)
             assert "john@test.com" not in masked_text
-            assert "[PII/DIRECT]" in masked_text
+            assert "[CONTACT]" in masked_text
 
 
 class TestStage2RedactorRealMode:
@@ -114,16 +114,16 @@ class TestStage2RedactorRealMode:
 
     def test_parse_single_mask_output(self, redactor):
         """Test parsing single MASK output."""
-        output_str = 'MASK "john@example.com" pii/direct'
+        output_str = 'MASK "john@example.com" contact'
         output = redactor._parse_extraction_output(output_str)
 
         assert len(output.spans) == 1
         assert output.spans[0].entity_text == "john@example.com"
-        assert output.spans[0].category == PIICategory.PII_DIRECT
+        assert output.spans[0].category == PIICategory.CONTACT
 
     def test_parse_multiple_mask_output(self, redactor):
         """Test parsing multiple MASK outputs."""
-        output_str = 'MASK "alice@test.com" pii/direct; MASK "555-123-4567" pii/direct'
+        output_str = 'MASK "alice@test.com" contact; MASK "555-123-4567" contact'
         output = redactor._parse_extraction_output(output_str)
 
         assert len(output.spans) == 2
@@ -136,7 +136,7 @@ class TestStage2RedactorRealMode:
             ('MASK "sk_live_123" credentials', PIICategory.CREDENTIALS),
             ('MASK "4532-1234-5678-9012" financial', PIICategory.FINANCIAL),
             ('MASK "diagnosis: flu" medical', PIICategory.MEDICAL),
-            ('MASK "123 Main St" location/precise', PIICategory.LOCATION_PRECISE),
+            ('MASK "123 Main St" location', PIICategory.LOCATION),
         ]
 
         for output_str, expected_category in test_cases:
@@ -147,9 +147,9 @@ class TestStage2RedactorRealMode:
     def test_parse_case_insensitive(self, redactor):
         """Test that parsing is case-insensitive."""
         outputs = [
-            'MASK "test@test.com" pii/direct',
-            'mask "test@test.com" pii/direct',
-            'Mask "test@test.com" pii/direct',
+            'MASK "test@test.com" contact',
+            'mask "test@test.com" contact',
+            'Mask "test@test.com" contact',
         ]
 
         for output_str in outputs:
@@ -157,12 +157,12 @@ class TestStage2RedactorRealMode:
             assert len(output.spans) == 1
 
     def test_parse_unknown_category_defaults(self, redactor):
-        """Test that unknown categories default to PII_DIRECT."""
+        """Test that unknown categories default to IDENTIFIER."""
         output_str = 'MASK "entity" unknown_category'
         output = redactor._parse_extraction_output(output_str)
 
         assert len(output.spans) == 1
-        assert output.spans[0].category == PIICategory.PII_DIRECT
+        assert output.spans[0].category == PIICategory.IDENTIFIER
 
     def test_format_prompt_with_few_shot(self, redactor, sample_messages):
         """Test prompt formatting with few-shot examples."""
@@ -233,7 +233,7 @@ class TestStage2RedactorIntegration:
         """Test parsing entities with spaces."""
         redactor = Stage2Redactor(mock_mode=True)
 
-        output_str = 'MASK "John Doe" pii/direct'
+        output_str = 'MASK "John Doe" contact'
         output = redactor._parse_extraction_output(output_str)
 
         assert len(output.spans) == 1
@@ -243,7 +243,7 @@ class TestStage2RedactorIntegration:
         """Test parsing entities with escaped quotes."""
         redactor = Stage2Redactor(mock_mode=True)
 
-        output_str = 'MASK "John ""Johnny"" Doe" pii/direct'
+        output_str = 'MASK "John ""Johnny"" Doe" contact'
         output = redactor._parse_extraction_output(output_str)
 
         assert len(output.spans) == 1

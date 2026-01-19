@@ -18,12 +18,14 @@ class TestPIICategory:
         """Test that all expected categories exist."""
         expected = [
             "SAFE",
-            "PII_DIRECT",
-            "PII_INDIRECT",
-            "CREDENTIALS",
+            "PERSON",
+            "CONTACT",
+            "GOV_ID",
+            "IDENTIFIER",
+            "LOCATION",
             "FINANCIAL",
+            "CREDENTIALS",
             "MEDICAL",
-            "LOCATION_PRECISE",
         ]
         for cat in expected:
             assert hasattr(PIICategory, cat)
@@ -31,7 +33,7 @@ class TestPIICategory:
     def test_category_values(self):
         """Test category string values."""
         assert PIICategory.SAFE.value == "safe"
-        assert PIICategory.PII_DIRECT.value == "pii/direct"
+        assert PIICategory.CONTACT.value == "contact"
         assert PIICategory.CREDENTIALS.value == "credentials"
 
 
@@ -40,9 +42,9 @@ class TestRiskScore:
 
     def test_risk_score_creation(self):
         """Test creating a RiskScore."""
-        score = RiskScore(score=0.75, top_category=PIICategory.PII_DIRECT)
+        score = RiskScore(score=0.75, top_category=PIICategory.CONTACT)
         assert score.score == 0.75
-        assert score.top_category == PIICategory.PII_DIRECT
+        assert score.top_category == PIICategory.CONTACT
 
     def test_risk_score_bounds(self):
         """Test that risk scores are bounded [0, 1]."""
@@ -60,16 +62,16 @@ class TestMaskSpan:
         """Test creating a MaskSpan."""
         span = MaskSpan(
             entity_text="john@example.com",
-            category=PIICategory.PII_DIRECT
+            category=PIICategory.CONTACT
         )
         assert span.entity_text == "john@example.com"
-        assert span.category == PIICategory.PII_DIRECT
+        assert span.category == PIICategory.CONTACT
 
     def test_mask_span_with_special_chars(self):
         """Test MaskSpan with special characters."""
         span = MaskSpan(
             entity_text='My "quoted" email',
-            category=PIICategory.PII_DIRECT
+            category=PIICategory.CONTACT
         )
         assert span.entity_text == 'My "quoted" email'
 
@@ -98,7 +100,7 @@ class TestRedactorOutput:
 
     def test_apply_masks_single_span(self):
         """Test applying a single mask."""
-        span = MaskSpan(entity_text="john@example.com", category=PIICategory.PII_DIRECT)
+        span = MaskSpan(entity_text="john@example.com", category=PIICategory.CONTACT)
         output = RedactorOutput(spans=[span])
         text = "Contact me at john@example.com for details."
         result = output.apply_masks(text)
@@ -125,7 +127,7 @@ class TestRedactorOutput:
 
     def test_apply_masks_case_sensitive(self):
         """Test that masking is case-sensitive."""
-        span = MaskSpan(entity_text="John", category=PIICategory.PII_DIRECT)
+        span = MaskSpan(entity_text="John", category=PIICategory.CONTACT)
         output = RedactorOutput(spans=[span])
         text = "John and john are different."
         result = output.apply_masks(text)
@@ -136,8 +138,8 @@ class TestRedactorOutput:
     def test_apply_masks_prefers_longer_entities(self):
         """Test that longer entities are masked first."""
         spans = [
-            MaskSpan(entity_text="george", category=PIICategory.PII_DIRECT),
-            MaskSpan(entity_text="george@gmail.com", category=PIICategory.PII_DIRECT),
+            MaskSpan(entity_text="george", category=PIICategory.CONTACT),
+            MaskSpan(entity_text="george@gmail.com", category=PIICategory.CONTACT),
         ]
         output = RedactorOutput(spans=spans)
         text = "Contact george@gmail.com for help."

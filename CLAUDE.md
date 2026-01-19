@@ -56,7 +56,7 @@ Streaming text → HoldbackBuffer → Fast Heuristics → Stage 1 Router → EMA
 
 ### Risk Management
 - **EMA Smoothing**: `ema = 0.85 * ema + 0.15 * risk`
-- **Hysteresis**: T_high=0.6 (escalate), T_low=0.3 (de-escalate)
+- **Hysteresis**: T_high=0.4 (escalate), T_low=0.2 (de-escalate)
 - **Three conditions**: Mask if `any_risk_in_buffer` OR `ema ≥ T_high` OR `strong_heuristic_match`
 
 ## Label Schema
@@ -64,12 +64,14 @@ Streaming text → HoldbackBuffer → Fast Heuristics → Stage 1 Router → EMA
 | Category | Description |
 |----------|-------------|
 | safe | No PII |
-| pii/direct | Email, phone, SSN, name+DOB combos |
-| pii/indirect | Quasi-identifiers enabling re-identification |
-| credentials | API keys, passwords, tokens |
-| financial | Account/card numbers, tax IDs |
-| medical | Diagnoses, prescriptions, record numbers |
-| location/precise | Exact addresses, coordinates |
+| person | Human names (first, last, full) |
+| contact | Email addresses, phone numbers |
+| gov_id | SSN, driver's license, passport, date of birth |
+| identifier | Order numbers, account IDs, tracking numbers |
+| location | Physical addresses, coordinates |
+| financial | Credit cards, bank accounts, routing numbers |
+| credentials | Passwords, API keys, tokens |
+| medical | Medical record numbers, diagnoses, prescriptions |
 
 ## Key Implementation Details
 
@@ -84,7 +86,7 @@ Labels apply to **current buffer only**, not entire exchange:
 ### Stage 2 Output Format
 ```
 PASS
-MASK "john.doe@gmail.com" pii/direct
+MASK "john.doe@gmail.com" contact
 MASK "entity1" cat1; MASK "entity2" cat2
 ```
 Uses entity text (not character offsets) because LLMs are bad at counting.
@@ -123,7 +125,8 @@ Key settings:
 - `stage2.model_name: Qwen/Qwen3-1.7B-MLX-8bit` - Accurate MLX model for Stage 2
 - `stage1.sequence_loglikelihood.enabled: true` - Required for MLX backend
 - `streaming.stream_break_timeout_ms: 2000` - 2s timeout for voice pauses
-- `streaming.t_high: 0.6` - EMA threshold to escalate
+- `streaming.t_high: 0.4` - EMA threshold to escalate
+- `streaming.t_low: 0.2` - EMA threshold to de-escalate
 - `streaming.risk_threshold: 0.7` - Individual token threshold
 
 **Note**: For Ollama backend, set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` models, and set `sequence_loglikelihood.enabled: false`. Prompt templates use `Answer:` ending to prevent model echo.

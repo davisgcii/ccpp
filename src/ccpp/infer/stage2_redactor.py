@@ -156,7 +156,7 @@ class Stage2Redactor:
                 spans.append(
                     MaskSpan(
                         entity_text=email,
-                        category=PIICategory.PII_DIRECT,
+                        category=PIICategory.CONTACT,
                     )
                 )
 
@@ -168,7 +168,7 @@ class Stage2Redactor:
                 spans.append(
                     MaskSpan(
                         entity_text=phone,
-                        category=PIICategory.PII_DIRECT,
+                        category=PIICategory.CONTACT,
                     )
                 )
 
@@ -180,7 +180,7 @@ class Stage2Redactor:
                 spans.append(
                     MaskSpan(
                         entity_text=ssn,
-                        category=PIICategory.PII_DIRECT,
+                        category=PIICategory.GOV_ID,
                     )
                 )
 
