@@ -27,6 +27,11 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 
 # =============================================================================
 # Configuration
@@ -57,6 +62,7 @@ def generate_conversations(
     output_file: Path,
     count: int,
     verbose: bool = False,
+    append: bool = True,
 ) -> dict:
     """
     Generate synthetic conversations.
@@ -65,6 +71,7 @@ def generate_conversations(
         output_file: Path to output JSONL file.
         count: Number of conversations to generate.
         verbose: Print progress.
+        append: If True, append to existing file instead of overwriting.
 
     Returns:
         Dict with generation statistics.
@@ -81,9 +88,13 @@ def generate_conversations(
         "errors": 0,
     }
 
-    print(f"Generating {count} conversations...")
+    mode = 'a' if append else 'w'
+    if append and output_file.exists():
+        print(f"Appending {count} conversations to {output_file}...")
+    else:
+        print(f"Generating {count} conversations...")
 
-    with open(output_file, 'w') as f:
+    with open(output_file, mode) as f:
         for i in range(count):
             try:
                 conv = generator.generate_conversation()
@@ -216,8 +227,9 @@ def cmd_generate(args):
     print(f"{'='*60}")
     print(f"Output: {output_file}")
     print(f"Count: {args.count}")
+    print(f"Mode: {'append' if args.append else 'overwrite'}")
 
-    stats = generate_conversations(output_file, args.count, verbose=False)
+    stats = generate_conversations(output_file, args.count, verbose=False, append=args.append)
 
     print(f"\n{'='*60}")
     print("GENERATION STATS")
@@ -279,10 +291,12 @@ def cmd_all(args):
     print(f"\n{'='*60}")
     print("FULL PIPELINE")
     print(f"{'='*60}")
+    if args.append:
+        print("Mode: append to existing data")
 
     # Generate
     print("\n[1/3] Generating conversations...")
-    gen_stats = generate_conversations(RAW_CONVERSATIONS, args.count)
+    gen_stats = generate_conversations(RAW_CONVERSATIONS, args.count, append=args.append)
     print(f"  Generated {gen_stats['total']} conversations")
 
     # Format
@@ -391,6 +405,7 @@ def main():
     gen_parser = subparsers.add_parser("generate", help="Generate full dataset")
     gen_parser.add_argument("--count", type=int, default=1000, help="Number of conversations")
     gen_parser.add_argument("--output", type=Path, help="Output file path")
+    gen_parser.add_argument("--append", action="store_true", help="Append to existing file instead of overwriting")
 
     # format command
     fmt_parser = subparsers.add_parser("format", help="Format conversations for training")
@@ -403,6 +418,7 @@ def main():
     # all command
     all_parser = subparsers.add_parser("all", help="Run full pipeline")
     all_parser.add_argument("--count", type=int, default=1000, help="Number of conversations")
+    all_parser.add_argument("--append", action="store_true", help="Append to existing raw_conversations.jsonl")
 
     # stats command
     stats_parser = subparsers.add_parser("stats", help="Print dataset statistics")

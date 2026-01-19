@@ -61,8 +61,9 @@ checkpoints/
 *.mlx
 
 # Datasets (large files)
-data/synthetic/*.jsonl
-data/training/*.jsonl
+data/training/**/*.jsonl
+data/synthetic/
+data/test_output/
 *.parquet
 *.arrow
 
@@ -81,3 +82,8 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Model adapters (large binary files from fine-tuning)
+# Track adapter_config.json for reproducibility, ignore weights and logs
+models/adapters/**/*.safetensors
+models/adapters/**/wandb/

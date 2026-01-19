@@ -38,7 +38,7 @@ from .constitution import load_constitution, get_pii_category_description
 # =============================================================================
 
 # Default model for generation
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 
 # Generation parameters
 DEFAULT_TEMPERATURE = 0.8
@@ -53,6 +53,9 @@ NO_PII_RATIO = 0.20  # 20% have no PII
 PII_DENSITY_1_MESSAGE = 0.70   # 70% have PII in 1 user message
 PII_DENSITY_2_3_MESSAGES = 0.20  # 20% have PII in 2-3 user messages
 PII_DENSITY_4_PLUS = 0.10  # 10% have PII in 4+ user messages
+
+# Split entity ratio - percentage of PII conversations where entity is split across messages
+SPLIT_ENTITY_RATIO = 0.50  # 5% of PII conversations have split entities
 
 # PII category distribution (balanced)
 PII_CATEGORY_WEIGHTS = {
@@ -123,6 +126,7 @@ class Conversation:
     messages: list[Message] = field(default_factory=list)
     has_pii: bool = False
     pii_categories_present: list[str] = field(default_factory=list)
+    has_split_entities: bool = False  # PII split across multiple messages
 
     def to_dict(self) -> dict:
         return {
@@ -130,6 +134,7 @@ class Conversation:
             "topic": self.topic,
             "modifier": self.modifier,
             "language": self.language,
+            "has_split_entities": self.has_split_entities,
             "messages": [m.to_dict() for m in self.messages],
             "has_pii": self.has_pii,
             "pii_categories_present": self.pii_categories_present,
@@ -231,11 +236,33 @@ Return a valid JSON object with this exact structure:
       "content": "The actual message text",
       "content_redacted": "Message with PII replaced by placeholders like [PERSON], [EMAIL], [PHONE], etc.",
       "pii_entities": [
-        {{"text": "the actual PII value", "category": "person|contact|gov_id|financial|credentials|medical|location|identifier"}}
+        {{"text": "the EXACT text as spoken", "category": "person|contact|gov_id|financial|credentials|medical|location|identifier"}}
       ]
     }}
   ]
 }}
+
+CATEGORY DEFINITIONS - USE THESE EXACTLY:
+- **person**: Human names ONLY (first, last, full). Examples: "Marcus Chen", "Priya", "Dr. Sarah Williams"
+- **contact**: Email addresses, phone numbers. Examples: "john dot smith at gmail dot com", "six two eight, four four seven, eight two nine one"
+- **gov_id**: SSN, driver's license, passport numbers, AND dates of birth. Examples: "five one two, eight three, four seven zero nine", "March 15th, 1989"
+- **financial**: Credit cards, bank accounts, routing numbers. Examples: "four nine one six, two eight four seven..."
+- **credentials**: Passwords, API keys, tokens. Examples: "Capital T, lowercase a, number 7..."
+- **medical**: Medical record numbers, diagnoses, prescriptions. Examples: "MRN two nine four seven eight three", "Lisinopril"
+- **location**: Physical addresses, coordinates. Examples: "4817 Wilshire Boulevard Unit 302"
+- **identifier**: Order numbers, account IDs, tracking numbers, referral IDs. Examples: "WMT-29847531", "REF dash two four seven nine eight one"
+
+COMMON MISTAKES TO AVOID:
+- Names are ALWAYS "person", never "identifier" or "contact"
+- Dates of birth are ALWAYS "gov_id", never "identifier" or "medical"
+- Phone numbers are ALWAYS "contact", never "identifier" or "financial"
+- Addresses are ALWAYS "location", never "contact"
+
+ENTITY TEXT MATCHING - CRITICAL:
+- The "text" field MUST match the EXACT spoken/written text in content
+- Do NOT convert to digits: Use "four one five" not "415"
+- Do NOT use symbols: Use "john dot smith at gmail dot com" not "john.smith@gmail.com"
+- The text should be copy-pasteable from the content field
 
 PLACEHOLDERS TO USE:
 - [PERSON] - Full names
@@ -311,6 +338,21 @@ The customer should naturally provide this type of PII during the conversation.
 Examples of {category} PII:
 {examples}"""
 
+SPLIT_ENTITY_INSTRUCTION = """
+**IMPORTANT - SPLIT ENTITY ACROSS MESSAGES**:
+For THIS conversation, the user should be interrupted or pause mid-PII disclosure, then continue in the next message. The PII entity should be SPLIT across two consecutive user messages.
+
+Examples of split patterns:
+- User: "my email is emma dot" | User: "carver at windstream dot net"
+- User: "my phone is two one two, eight eight" | User: "zero, five five three three"
+- User: "I live at 67 East" | User: "8th Street, Apartment 10B, Brooklyn"
+- User: "my bank account is one one zero, three" | User: "nine two four four seven, at Chase"
+- User: "the confirmation number is charlie seven" | User: "eight bravo delta two six four"
+
+Make it natural - the user might pause to find info, get interrupted, or the agent might jump in.
+BOTH parts of the PII must be tagged in their respective messages' pii_entities arrays.
+"""
+
 
 # =============================================================================
 # Generator class
@@ -372,8 +414,16 @@ class ConversationGenerator:
         include_pii: bool,
         pii_category: PIICategory | None,
         pii_density: int,
+        split_entities: bool = False,
     ) -> str:
-        """Build PII instructions for the prompt."""
+        """Build PII instructions for the prompt.
+
+        Args:
+            include_pii: Whether conversation should include PII.
+            pii_category: Category of PII to include.
+            pii_density: How many messages should contain PII.
+            split_entities: If True, add instruction to split PII across messages.
+        """
         if not include_pii:
             return NO_PII_INSTRUCTION
 
@@ -381,12 +431,18 @@ class ConversationGenerator:
             pii_category = sample_pii_category()
 
         examples = self._get_pii_examples(pii_category)
-        return PII_INSTRUCTION_TEMPLATE.format(
+        instructions = PII_INSTRUCTION_TEMPLATE.format(
             category=pii_category.value,
             category_description=get_pii_category_description(pii_category),
             density=pii_density,
             examples=examples,
         )
+
+        # Add split entity instruction if requested
+        if split_entities:
+            instructions += SPLIT_ENTITY_INSTRUCTION
+
+        return instructions
 
     def generate_conversation(
         self,
@@ -422,16 +478,21 @@ class ConversationGenerator:
             if topic is None:
                 topic = get_topic_for_pii_category(pii_category)
             pii_density = sample_pii_density()
+            # Determine if this conversation should have split entities
+            split_entities = random.random() < SPLIT_ENTITY_RATIO
         else:
             if topic is None:
                 topic = get_topic_without_pii()
             pii_density = 0
+            split_entities = False
 
         if modifier is None:
             modifier = get_random_modifiers(1)[0]
 
         # Build prompts
-        pii_instructions = self._build_pii_instructions(include_pii, pii_category, pii_density)
+        pii_instructions = self._build_pii_instructions(
+            include_pii, pii_category, pii_density, split_entities
+        )
 
         language_name = {
             "en": "English",
@@ -540,10 +601,12 @@ class ConversationGenerator:
             messages=messages,
             has_pii=len(pii_categories_found) > 0,
             pii_categories_present=list(pii_categories_found),
+            has_split_entities=split_entities,
         )
 
         logger.info(f"Generated {conversation_id}: {len(messages)} messages, "
-                    f"has_pii={conversation.has_pii}, categories={conversation.pii_categories_present}")
+                    f"has_pii={conversation.has_pii}, categories={conversation.pii_categories_present}, "
+                    f"split_entities={conversation.has_split_entities}")
 
         return conversation
 

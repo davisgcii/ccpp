@@ -158,6 +158,57 @@ uv run python -m data.scripts.main all --count 1000
 
 See `data/README.md` for detailed format documentation.
 
+## Training Pipeline
+
+Fine-tune Qwen3 models with LoRA adapters using mlx-lm.
+
+### Quick Pipeline Test
+
+```bash
+# End-to-end test (generates 1-2 conversations, formats, runs forward pass)
+uv run python -m data.scripts.test_pipeline --quick
+uv run python -m data.scripts.test_pipeline --count 3 --output-dir data/test_output
+```
+
+### Full Training Workflow
+
+```bash
+# 1. Generate training data (20+ for testing, 1000+ for real training)
+uv run python -m data.scripts.main all --count 100
+
+# 2. Convert to mlx-lm format
+uv run python -m data.scripts.convert_to_mlx --stage 1
+uv run python -m data.scripts.convert_to_mlx --stage 2
+
+# 3. Evaluate base models (before training)
+uv run python -m data.scripts.evaluate --all --output results/baseline.json
+
+# 4. Train LoRA adapters
+uv run python -m mlx_lm.lora --config configs/lora_stage1.yaml
+uv run python -m mlx_lm.lora --config configs/lora_stage2.yaml
+
+# 5. Evaluate fine-tuned models
+uv run python -m data.scripts.evaluate --all \
+    --stage1-adapter models/adapters/stage1/qwen3-0.6b-pii-classifier \
+    --stage2-adapter models/adapters/stage2/qwen3-1.7b-pii-redactor \
+    --output results/finetuned.json
+
+# 6. Compare results
+uv run python -m data.scripts.evaluate --compare results/baseline.json results/finetuned.json
+
+# 7. Enable adapters in configs/default.yaml:
+#    stage1.adapter_path: models/adapters/stage1/qwen3-0.6b-pii-classifier
+#    stage2.adapter_path: models/adapters/stage2/qwen3-1.7b-pii-redactor
+```
+
+### Adapters
+
+After training, adapters are stored in:
+- `models/adapters/stage1/qwen3-0.6b-pii-classifier/`
+- `models/adapters/stage2/qwen3-1.7b-pii-redactor/`
+
+Enable by setting `adapter_path` in `configs/default.yaml`.
+
 ## Reference
 - `TODO.md` - Progress tracking and next steps
 - `papers/Constitutional Classifiers++.pdf` - Primary paper

@@ -33,6 +33,9 @@ stage1:
   # model_name: qwen3:0.6b  # Uncomment for Ollama backend
   quantized: true  # Only used by MLX backend
 
+  # LoRA adapter path (set after training Stage 1 adapter)
+  adapter_path: models/adapters/stage1/qwen3-0.6b-pii-classifier
+
   # Generation settings
   timeout: 60  # seconds
   max_tokens: 3  # Only need "SAFE" or "FAIL"
@@ -395,6 +398,9 @@ stage2:
   # model_name: qwen3:1.7b  # Uncomment for Ollama backend
   quantized: true  # Only used by MLX backend
 
+  # LoRA adapter path (set after training Stage 2 adapter)
+  adapter_path: models/adapters/stage2/qwen3-1.7b-pii-redactor
+
   # Generation settings
   timeout: 120  # seconds
   max_tokens: 200  # Enough for multiple entity extractions
@@ -410,6 +416,8 @@ stage2:
   enable_thinking: false  # Must be false for entity extraction
 
   # Prompt template for Stage 2 (entity extraction)
+  # Categories must match training data: person, contact, gov_id, identifier,
+  # location, financial, credentials, medical
   prompt_template: |
     # Instructions
 
@@ -422,12 +430,14 @@ stage2:
 
     ## PII Categories
 
-    - pii/direct: email, phone, address, full name (as identifier), SSN, DOB+identifiers
-    - pii/indirect: partial identifiers, demographic combos that enable re-identification
-    - credentials: API keys, passwords, tokens, private keys, certificates
-    - financial: credit card, account numbers, routing numbers, tax IDs
-    - medical: diagnoses, prescriptions, lab results, medical record numbers
-    - location/precise: exact addresses (with street number), coordinates, real-time location
+    - person: Human names (first, last, full). Examples: "Marcus Chen", "Priya", "Dr. Sarah Williams"
+    - contact: Email addresses, phone numbers. Examples: "john.smith@gmail.com", "628-447-8291"
+    - gov_id: SSN, driver's license, passport numbers, dates of birth. Examples: "512-83-4709", "March 15th, 1989"
+    - identifier: Order numbers, account IDs, tracking numbers. Examples: "WMT-29847531", "REF-247981"
+    - location: Physical addresses, coordinates. Examples: "4817 Wilshire Boulevard Unit 302"
+    - financial: Credit cards, bank accounts, routing numbers. Examples: "4916-2847-3921-0058"
+    - credentials: Passwords, API keys, tokens. Examples: "sk_live_abc123", "MyP@ssw0rd!"
+    - medical: Medical record numbers, diagnoses, prescriptions. Examples: "MRN 294783", "Lisinopril"
 
     ## NOT PII (do not extract)
 
@@ -451,7 +461,7 @@ stage2:
     ## Example 1
     Context: (No prior context)
     Window text: You can reach me at john.doe@gmail.com
-    Output: MASK "john.doe@gmail.com" pii/direct
+    Output: MASK "john.doe@gmail.com" contact
 
     ## Example 2
     Context: (No prior context)
@@ -462,7 +472,7 @@ stage2:
     Context:
     Assistant: What's your contact number?
     Window text: 702-555-0147
-    Output: MASK "702-555-0147" pii/direct
+    Output: MASK "702-555-0147" contact
 
     ## Example 4
     Context: (No prior context)
@@ -471,14 +481,14 @@ stage2:
 
     ## Example 5
     Context:
-    Assistant: Can you provide your email address?
-    Window text: it's george
-    Output: MASK "george" pii/direct
+    Assistant: Can you provide your name?
+    Window text: it's Marcus Chen
+    Output: MASK "Marcus Chen" person
 
     ## Example 6
     Context: (No prior context)
     Window text: Contact me: john@email.com or 555-123-4567
-    Output: MASK "john@email.com" pii/direct; MASK "555-123-4567" pii/direct
+    Output: MASK "john@email.com" contact; MASK "555-123-4567" contact
 
     ## Example 7
     Context:
@@ -488,8 +498,8 @@ stage2:
 
     ## Example 8
     Context: (No prior context)
-    Window text: do you know where I can check my order status?
-    Output: PASS
+    Window text: my order number is WMT-29847531
+    Output: MASK "WMT-29847531" identifier
 
     ---
 
@@ -517,8 +527,8 @@ streaming:
   reset_ema_on_stream_break: false  # Allow cross-break detection
 
   # Hysteresis thresholds
-  t_high: 0.6  # EMA threshold to escalate to Stage 2
-  t_low: 0.3   # EMA threshold to de-escalate
+  t_high: 0.4  # EMA threshold to escalate to Stage 2
+  t_low: 0.2   # EMA threshold to de-escalate
 
   # Risk detection threshold
   risk_threshold: 0.7  # Individual token P(RISK) to set any_risk_in_buffer
@@ -574,16 +584,20 @@ allowlist:
 # Masking Output Configuration
 masking:
   # Default mask format
-  default_format: "[{category}]"  # e.g., [PII/DIRECT]
+  default_format: "[{category}]"  # e.g., [IDENTIFIER]
 
   # Category-specific formats (optional)
+  # Categories match training data: person, contact, gov_id, identifier,
+  # location, financial, credentials, medical
   category_formats:
-    pii/direct: "[PII/DIRECT]"
-    pii/indirect: "[PII/INDIRECT]"
-    credentials: "[CREDENTIALS]"
+    person: "[PERSON]"
+    contact: "[CONTACT]"
+    gov_id: "[GOV_ID]"
+    identifier: "[IDENTIFIER]"
+    location: "[LOCATION]"
     financial: "[FINANCIAL]"
+    credentials: "[CREDENTIALS]"
     medical: "[MEDICAL]"
-    location/precise: "[LOCATION]"
 
   # Case sensitivity for entity matching
   case_sensitive: true

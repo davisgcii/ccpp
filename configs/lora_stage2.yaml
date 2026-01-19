@@ -1,0 +1,52 @@
+# LoRA Training Config for Stage 2: PII Entity Extractor
+#
+# Trains a LoRA adapter on Qwen3-1.7B for entity extraction
+# Output format: PASS or MASK "entity" category
+#
+# Usage:
+#   uv run python -m mlx_lm.lora --config configs/lora_stage2.yaml
+
+# Base model (8-bit quantized, larger model for entity extraction)
+model: Qwen/Qwen3-1.7B-MLX-8bit
+
+# Training data directory (must contain train.jsonl and valid.jsonl)
+data: data/training/stage2_mlx
+
+# Output adapter path
+adapter_path: models/adapters/stage2/qwen3-1.7b-pii-redactor
+
+# Training
+train: true
+iters: 1500
+batch_size: 2
+val_batches: 25
+steps_per_eval: 100
+steps_per_report: 10
+save_every: 200
+max_seq_length: 4096  # System prompt is long, need extra context
+
+# LoRA hyperparameters
+# Applied to last 16 layers (more capacity for entity extraction)
+num_layers: 16
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+
+# Learning rate with cosine decay (slightly lower for larger model)
+learning_rate: 5e-5
+lr_schedule:
+  name: cosine_decay
+  arguments: [5e-5, 1500]  # [init_lr, decay_steps]
+
+# Only compute loss on the assistant's response (PASS/MASK...)
+mask_prompt: true
+
+# Gradient checkpointing to save memory (essential for 1.7B on 16GB)
+grad_checkpoint: true
+
+# Seed for reproducibility
+seed: 42
+
+# Logging to Weights & Biases
+report_to: wandb
+project_name: ccpp-stage2-redactor

@@ -1,0 +1,49 @@
+{
+    "adapter_path": "models/adapters/stage1/qwen3-0.6b-pii-classifier",
+    "batch_size": 1,
+    "config": "configs/lora_stage1.yaml",
+    "data": "data/training/stage1_mlx",
+    "fine_tune_type": "lora",
+    "grad_accumulation_steps": 1,
+    "grad_checkpoint": true,
+    "iters": 1000,
+    "learning_rate": 0.0001,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "lora_parameters": {
+        "rank": 8,
+        "dropout": 0.0,
+        "scale": 20.0
+    },
+    "lora_rank": 8,
+    "lr_schedule": {
+        "name": "cosine_decay",
+        "arguments": [
+            0.0001,
+            1000
+        ]
+    },
+    "mask_prompt": true,
+    "max_seq_length": 4096,
+    "model": "mlx-community/Qwen3-0.6B-4bit",
+    "num_layers": 8,
+    "optimizer": "adam",
+    "optimizer_config": {
+        "adam": {},
+        "adamw": {},
+        "muon": {},
+        "sgd": {},
+        "adafactor": {}
+    },
+    "project_name": "ccpp-stage1-classifier",
+    "report_to": "wandb",
+    "resume_adapter_file": null,
+    "save_every": 200,
+    "seed": 42,
+    "steps_per_eval": 100,
+    "steps_per_report": 10,
+    "test": false,
+    "test_batches": 500,
+    "train": true,
+    "val_batches": 25
+}

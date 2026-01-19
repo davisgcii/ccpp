@@ -124,6 +124,7 @@ def _create_mlx_backend(config: dict) -> MLXBackend:
     return MLXBackend(
         model_name=config["model_name"],
         quantized=config.get("quantized", True),  # Default to 8-bit quantized
+        adapter_path=config.get("adapter_path"),  # Optional LoRA adapter path
     )
 
 

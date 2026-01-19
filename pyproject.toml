@@ -30,6 +30,8 @@ dependencies = [
     # MLX backend (Apple Silicon)
     "mlx>=0.4.0; platform_machine == 'arm64'",
     "mlx-lm>=0.4.0; platform_machine == 'arm64'",
+    # Training experiment tracking
+    "wandb>=0.18.0",
 ]
 
 [project.optional-dependencies]

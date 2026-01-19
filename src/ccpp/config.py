@@ -299,6 +299,10 @@ def get_stage1_config(config: Config) -> Dict[str, Any]:
             else config.stage1.calibration
         )
 
+    # LoRA adapter path for fine-tuned models
+    if hasattr(config.stage1, "adapter_path") and config.stage1.adapter_path:
+        result["adapter_path"] = config.stage1.adapter_path
+
     return result
 
 
@@ -340,6 +344,10 @@ def get_stage2_config(config: Config) -> Dict[str, Any]:
     for key in ("top_p", "top_k", "min_p", "do_sample", "stop_sequences", "enable_thinking"):
         if hasattr(config.stage2, key):
             result[key] = getattr(config.stage2, key)
+
+    # LoRA adapter path for fine-tuned models
+    if hasattr(config.stage2, "adapter_path") and config.stage2.adapter_path:
+        result["adapter_path"] = config.stage2.adapter_path
 
     return result
 

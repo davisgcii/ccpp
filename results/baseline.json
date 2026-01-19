@@ -1,0 +1,30 @@
+{
+  "stage1": {
+    "examples": 50,
+    "accuracy": 0.48,
+    "precision": 0.39285714285714285,
+    "recall": 0.55,
+    "f1": 0.4583333333333333,
+    "auroc": 0.4983333333333334,
+    "fpr": 0.5666666666666667,
+    "fnr": 0.45,
+    "latency_avg_s": 3.334853367805481,
+    "latency_total_s": 166.74266839027405,
+    "num_safe": 30,
+    "num_fail": 20
+  },
+  "stage2": {
+    "examples": 12,
+    "entity_precision": 0.14285714285714285,
+    "entity_recall": 0.16666666666666666,
+    "entity_f1": 0.15384615384615383,
+    "exact_match_rate": 0.16666666666666666,
+    "category_accuracy": 0.0,
+    "total_gt_entities": 6,
+    "tp": 1,
+    "fp": 6,
+    "fn": 5,
+    "latency_avg_s": 1.8025604685147603,
+    "latency_total_s": 21.630725622177124
+  }
+}

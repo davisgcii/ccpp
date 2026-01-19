@@ -38,12 +38,14 @@ class MLXBackend(LLMBackend):
         self,
         model_name: str,
         quantized: bool = True,
+        adapter_path: Optional[str] = None,
     ):
         """Initialize MLX backend.
 
         Args:
             model_name: HuggingFace model name (e.g., "Qwen/Qwen3-1.7B-MLX-8bit")
             quantized: Whether to use quantized model (8-bit recommended)
+            adapter_path: Optional path to LoRA adapter weights
 
         Raises:
             ImportError: If mlx_lm package not installed
@@ -58,11 +60,17 @@ class MLXBackend(LLMBackend):
             )
 
         self.model_name = model_name
+        self.adapter_path = adapter_path
 
         # Load model and tokenizer
         print(f"Loading {model_name}...")
-        self.model, self.tokenizer = load(model_name)
-        print(f"✓ Model loaded: {model_name}")
+        if adapter_path:
+            print(f"  with adapter: {adapter_path}")
+            self.model, self.tokenizer = load(model_name, adapter_path=adapter_path)
+            print(f"✓ Model loaded with adapter: {model_name}")
+        else:
+            self.model, self.tokenizer = load(model_name)
+            print(f"✓ Model loaded: {model_name}")
 
         # Cache for token IDs (populated on first use)
         self._token_id_cache = {}

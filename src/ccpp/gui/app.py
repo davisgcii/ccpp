@@ -463,6 +463,7 @@ def check_and_process_buffer(state: PIIClientState):
             state.add_to_conversation(user_message)
 
             # Clear ALL history for fresh chart on next buffer
+            archived_count = len(state.archived_risk_history)
             state.current_char_data = []
             state.risk_history = []  # Reset for next buffer
             state.archived_risk_history = []  # Clear archive so chart resets

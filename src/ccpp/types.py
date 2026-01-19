@@ -64,15 +64,20 @@ class ApprovedModel(Enum):
 
 
 class PIICategory(Enum):
-    """PII/sensitive information categories for classification and masking."""
+    """PII/sensitive information categories for classification and masking.
+
+    These categories match the training data used for Stage 2 finetuning.
+    """
 
     SAFE = "safe"
-    PII_DIRECT = "pii/direct"  # email, phone, SSN, name+DOB combos
-    PII_INDIRECT = "pii/indirect"  # quasi-identifiers (job+employer+city)
-    CREDENTIALS = "credentials"  # API keys, passwords, tokens, private keys
-    FINANCIAL = "financial"  # account/card numbers, tax IDs
-    MEDICAL = "medical"  # diagnoses, prescriptions, record numbers
-    LOCATION_PRECISE = "location/precise"  # exact addresses, coordinates
+    PERSON = "person"  # Human names (first, last, full)
+    CONTACT = "contact"  # Email addresses, phone numbers
+    GOV_ID = "gov_id"  # SSN, driver's license, passport, date of birth
+    IDENTIFIER = "identifier"  # Order numbers, account IDs, tracking numbers
+    LOCATION = "location"  # Physical addresses, coordinates
+    FINANCIAL = "financial"  # Credit cards, bank accounts, routing numbers
+    CREDENTIALS = "credentials"  # Passwords, API keys, tokens
+    MEDICAL = "medical"  # Medical record numbers, diagnoses, prescriptions
 
     def is_sensitive(self) -> bool:
         """Check if category indicates sensitive content requiring masking."""

@@ -1,0 +1,49 @@
+{
+    "adapter_path": "models/adapters/stage2/qwen3-1.7b-pii-redactor",
+    "batch_size": 2,
+    "config": "configs/lora_stage2.yaml",
+    "data": "data/training/stage2_mlx",
+    "fine_tune_type": "lora",
+    "grad_accumulation_steps": 1,
+    "grad_checkpoint": true,
+    "iters": 1500,
+    "learning_rate": 5e-05,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "lora_parameters": {
+        "rank": 8,
+        "dropout": 0.0,
+        "scale": 20.0
+    },
+    "lora_rank": 16,
+    "lr_schedule": {
+        "name": "cosine_decay",
+        "arguments": [
+            5e-05,
+            1500
+        ]
+    },
+    "mask_prompt": true,
+    "max_seq_length": 4096,
+    "model": "Qwen/Qwen3-1.7B-MLX-8bit",
+    "num_layers": 16,
+    "optimizer": "adam",
+    "optimizer_config": {
+        "adam": {},
+        "adamw": {},
+        "muon": {},
+        "sgd": {},
+        "adafactor": {}
+    },
+    "project_name": "ccpp-stage2-redactor",
+    "report_to": "wandb",
+    "resume_adapter_file": null,
+    "save_every": 200,
+    "seed": 42,
+    "steps_per_eval": 100,
+    "steps_per_report": 10,
+    "test": false,
+    "test_batches": 500,
+    "train": true,
+    "val_batches": 25
+}

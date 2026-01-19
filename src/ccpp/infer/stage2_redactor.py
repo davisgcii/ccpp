@@ -380,24 +380,34 @@ class Stage2Redactor:
             category_str = match.group(2).lower().replace("-", "_")
 
             # Map category string to PIICategory enum
+            # Categories match training data: person, contact, gov_id, identifier,
+            # location, financial, credentials, medical
             try:
-                if category_str == "pii/direct" or category_str == "pii_direct":
-                    category = PIICategory.PII_DIRECT
-                elif category_str == "pii/indirect" or category_str == "pii_indirect":
-                    category = PIICategory.PII_INDIRECT
-                elif category_str == "credentials":
-                    category = PIICategory.CREDENTIALS
+                if category_str == "person":
+                    category = PIICategory.PERSON
+                elif category_str == "contact":
+                    category = PIICategory.CONTACT
+                elif category_str == "gov_id":
+                    category = PIICategory.GOV_ID
+                elif category_str == "identifier":
+                    category = PIICategory.IDENTIFIER
+                elif category_str == "location":
+                    category = PIICategory.LOCATION
                 elif category_str == "financial":
                     category = PIICategory.FINANCIAL
+                elif category_str == "credentials":
+                    category = PIICategory.CREDENTIALS
                 elif category_str == "medical":
                     category = PIICategory.MEDICAL
-                elif category_str == "location/precise" or category_str == "location_precise":
-                    category = PIICategory.LOCATION_PRECISE
                 else:
-                    # Default to PII_DIRECT if unknown
-                    category = PIICategory.PII_DIRECT
+                    # Default to IDENTIFIER if unknown
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"Unknown PII category: {category_str}, defaulting to identifier"
+                    )
+                    category = PIICategory.IDENTIFIER
             except (ValueError, AttributeError):
-                category = PIICategory.PII_DIRECT
+                category = PIICategory.IDENTIFIER
 
             spans.append(MaskSpan(entity_text=entity_text, category=category))
 
