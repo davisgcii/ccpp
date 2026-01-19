@@ -25,19 +25,32 @@ Key mechanics from CC++:
 ## Architecture
 
 ```
-Streaming text → HoldbackBuffer → Fast Heuristics → Stage 1 Router → EMA Smoothing
-                                        ↓                   ↓
-                              (strong match?)        (risk ≥ 0.7?)
-                                        ↓                   ↓
-                                   ←←←←←←←←←←←←←←←←←←←←←←←
-                                              ↓
-                              Stream break? (timeout ≥ 2s)
-                                              ↓ Yes
-                              Masking decision (any_risk OR ema≥T_high OR strong_match)
-                                              ↓ Yes
-                                     Stage 2: Entity Redactor
-                                              ↓
-                                     Apply masks → Emit text
+Streaming text
+      │
+      ▼
+HoldbackBuffer ──────────────────────────────────┐
+      │                                          │
+      ▼                                          ▼
+Fast Heuristics                         Stage 1 Router
+(regex patterns)                         (P(FAIL) score)
+      │                                          │
+      ▼                                          ▼
+strong_match?                           EMA Smoothing
+      │                                    │         │
+      │                              any_risk?    ema ≥ 0.4?
+      │                              (≥ 0.7)     (sustained)
+      │                                    │         │
+      └────────────────┬───────────────────┴─────────┘
+                       │
+                       ▼
+            Stream break? (≥2s pause)
+                       │
+                       ▼ (if any trigger)
+            Stage 2: Entity Redactor
+            MASK "entity" category
+                       │
+                       ▼
+              Apply masks → Emit
 ```
 
 ### Stage 1: Fast Risk Router
