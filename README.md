@@ -2,172 +2,127 @@
 
 A CC++-inspired streaming exchange classifier for PII detection and masking in black-box hosted LLMs.
 
-## ⚠️ Project Status
-
-**ACTIVE DEVELOPMENT** - Core pipeline implemented with working two-stage cascade:
-
-✅ **Working**:
-- Stage 1 classification using MLX sequence log-likelihood (default, Apple Silicon)
-- Stage 2 entity extraction with MLX text generation
-- Ollama backend available as cross-platform alternative (native logprobs)
-- GUI client with real-time visualization
-- Fast heuristics (regex patterns)
-- Training data generation pipeline (`data/scripts/`)
-- LoRA finetuning for Stage 1 (classifier) and Stage 2 (redactor)
-
-⏸️ **In Progress**:
-- Evaluation and calibration refinement
-
-See [TODO.md](TODO.md) for detailed progress tracking.
-
-## Overview
-
-This project implements a two-stage cascade for streaming PII detection and masking:
-
-- **Stage 1 (Router)**: Fast classification using MLX with Qwen3-0.6B-4bit (sequence log-likelihood)
-- **Stage 2 (Redactor)**: Accurate entity extraction using MLX with Qwen3-1.7B
-
-Ollama backend available as cross-platform alternative with native logprobs API.
-
-## Features
-
-- **Per-token classification**: Runs on every new token/chunk (not fixed windows)
-- **Stream break detection**: Timeout-based (default 2s) for natural conversation boundaries
-- **Three-condition masking**: any_risk_in_buffer OR ema≥T_high OR strong_heuristic_match
-- **EMA natural decay**: Cross-break PII detection without manual reset
-- **Calibrated probabilities**: MLX uses sequence log-likelihood, Ollama uses native logprobs API
-- **LLM harness**: Unified interface for MLX (default), Ollama (cross-platform), and API backends (Claude, GPT)
-
 ## Quick Start
 
-### Installation
-
 ```bash
-# Clone the repository
 git clone https://github.com/davisgcii/ccpp.git
 cd ccpp
-
-# Install dependencies
-uv sync
-
-# Configure your API keys (optional, for Anthropic backend)
-# Edit .env and add your ANTHROPIC_API_KEY
+./setup.sh                             # installs deps, prompts for API key
+uv run python scripts/gui_client.py    # launches GUI at http://127.0.0.1:7860
 ```
 
-### Run GUI Client
+The default backend is **MLX** (Apple Silicon). Base models are downloaded automatically from HuggingFace on first run. Pre-trained LoRA adapters are included in the repo.
 
-```bash
-# Launch interactive GUI (uses MLX backend by default)
-uv run python scripts/gui_client.py
+## How It Works
 
-# GUI will be available at http://127.0.0.1:7860
-# Logs available at /tmp/gui_debug.log
-```
+Two-stage cascade running on streaming text:
 
-**Note**: Default backend is MLX (Apple Silicon). For Ollama backend, run `ollama pull qwen3:0.6b && ollama pull qwen3:1.7b` and update `configs/default.yaml`.
+1. **Stage 1 (Router)** - Fast SAFE/FAIL classification using Qwen3-0.6B via MLX sequence log-likelihood (~1-2s per classification)
+2. **Stage 2 (Redactor)** - Entity extraction using Qwen3-1.7B, invoked only at stream breaks when risk is detected
+3. **Fast heuristics** - Regex patterns (email, phone, SSN, API keys) run before Stage 1 for instant detection
 
-## Configuration
-
-CC++ uses a flexible YAML-based configuration system. Default backend is **MLX** (Apple Silicon). Ollama backend available as cross-platform alternative.
-
-### Current Configuration (`configs/default.yaml`)
-
-**Backend**: MLX (Apple Silicon, local inference)
-- **Stage 1 Router**: `mlx-community/Qwen3-0.6B-4bit` with sequence log-likelihood (fast)
-- **Stage 2 Redactor**: `Qwen/Qwen3-1.7B-MLX-8bit` with text generation (accurate)
-
-**Key Parameters**:
-- **Stream break timeout**: `2000ms` (2 seconds) - wait time before masking decision
-- **EMA beta**: `0.85` - smoothing factor for risk scores
-- **Thresholds**:
-  - `t_high: 0.4` - escalate to Stage 2 when EMA crosses this
-  - `t_low: 0.2` - de-escalate when EMA drops below this
-  - `risk_threshold: 0.7` - individual token P(RISK) threshold for immediate flagging
-- **Heuristics**: Enabled (regex patterns for emails, phones, SSNs, API keys)
-
-**Ollama Alternative**: Set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` models, set `sequence_loglikelihood.enabled: false`. Uses native logprobs API with `think=False`.
-
-See [Configuration Guide](docs/CONFIG.md) for complete reference and `configs/default.yaml` for full configuration.
-
-## Testing
-
-The project uses pytest with three test tiers:
-
-1. **Unit tests** (fast, mocked dependencies) - default
-2. **Integration tests** (real APIs/services) - optional
-3. **End-to-end tests** (full pipeline) - future
-
-### Run All Tests (Unit Only)
-
-```bash
-uv run pytest                    # All unit tests
-uv run pytest --cov=src/ccpp    # With coverage
-```
-
-### Run Integration Tests
-
-Integration tests verify connectivity with real services:
-
-```bash
-# Prerequisites
-ollama serve
-ollama pull qwen3:1.7b
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# Run integration tests
-uv run pytest -m integration
-```
-
-**Note**: Integration tests are skipped by default. They only run when:
-- Marked explicitly with `-m integration`
-- Required services are available (Ollama running, API keys set)
-- Cost is minimal (~$0.001 total for Anthropic tests)
-
-### Run Tests by Category
-
-```bash
-# Unit tests only (default)
-uv run pytest
-
-# Integration tests only
-uv run pytest -m integration
-
-# Exclude slow tests
-uv run pytest -m "not slow"
-```
-
-### Run Specific Test Files
-
-```bash
-# Core components
-uv run pytest tests/test_types.py
-uv run pytest tests/test_llm_harness.py
-uv run pytest tests/test_heuristics.py
-
-# Pipeline stages
-uv run pytest tests/test_stage1_router.py
-uv run pytest tests/test_stage2_redactor.py
-
-# Configuration
-uv run pytest tests/test_config.py
-
-# Integration (requires services)
-uv run pytest tests/test_integration.py
-```
-
-See [Testing Guide](docs/TESTING.md) for detailed testing documentation.
-
-### Coverage Report
-
-```bash
-# Run tests with coverage report
-uv run pytest --cov=src/ccpp --cov-report=html --cov-report=term-missing
-```
+Masking triggers on any of: individual risk score >= 0.7, EMA >= 0.4, or strong heuristic match.
 
 ## Architecture
 
-See `CLAUDE.md` for detailed architecture documentation.
+```
+Streaming text
+      |
+      v
+HoldbackBuffer
+      |
+      v
+Fast Heuristics -----> strong match? ----+
+      |                                   |
+      v                                   |
+Stage 1 Router (Qwen3-0.6B)              |
+P(FAIL) score                             |
+      |                                   |
+      v                                   |
+EMA Smoothing                             |
+      |                                   |
+      v                                   |
+any_risk OR ema >= 0.4? -----------------+
+      |                                   |
+      v                                   v
+Stream break? (2s pause) ----------> Stage 2 Redactor (Qwen3-1.7B)
+                                     MASK "entity" category
+                                          |
+                                          v
+                                    Apply masks -> Emit
+```
 
-## License
+## Configuration
 
-[Add your license here]
+All settings live in `configs/default.yaml`. Key parameters:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `stage1.backend` | `mlx` | `mlx` (Apple Silicon) or `ollama` (cross-platform) |
+| `stage1.model_name` | `mlx-community/Qwen3-0.6B-4bit` | Stage 1 model |
+| `stage2.model_name` | `Qwen/Qwen3-1.7B-MLX-8bit` | Stage 2 model |
+| `streaming.stream_break_timeout_ms` | `2000` | Stream break timeout (ms) |
+| `streaming.t_high` / `t_low` | `0.4` / `0.2` | EMA hysteresis thresholds |
+| `streaming.risk_threshold` | `0.7` | Individual token risk threshold |
+
+For **Ollama backend**: set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` models, set `sequence_loglikelihood.enabled: false`. Requires Ollama running (`ollama serve`).
+
+## PII Categories
+
+| Category | Examples |
+|----------|----------|
+| person | Human names |
+| contact | Email, phone numbers |
+| gov_id | SSN, driver's license, passport, date of birth |
+| identifier | Order numbers, account IDs, tracking numbers |
+| location | Street addresses, coordinates |
+| financial | Credit cards, bank accounts |
+| credentials | Passwords, API keys, tokens |
+| medical | Medical record numbers, diagnoses |
+
+## Testing
+
+```bash
+uv run pytest                          # all unit tests (131 tests)
+uv run pytest --cov=src/ccpp           # with coverage
+uv run pytest -m integration           # integration tests (requires Ollama/API keys)
+```
+
+## Retraining (Optional)
+
+Pre-trained LoRA adapters are included. To retrain from scratch:
+
+```bash
+# 1. Generate synthetic conversations (requires ANTHROPIC_API_KEY)
+uv run python -m data.scripts.main all --count 1000
+
+# 2. Convert to MLX training format
+uv run python -m data.scripts.convert_to_mlx --stage 1
+uv run python -m data.scripts.convert_to_mlx --stage 2
+
+# 3. Train LoRA adapters
+uv run python -m mlx_lm.lora --config configs/lora_stage1.yaml
+uv run python -m mlx_lm.lora --config configs/lora_stage2.yaml
+```
+
+See `CLAUDE.md` for full training pipeline documentation.
+
+## Project Structure
+
+```
+src/ccpp/
+  infer/       Stage 1 router, Stage 2 redactor, heuristics, guard
+  llm/         LLM backends (MLX, Ollama, Anthropic, OpenAI)
+  gui/         Gradio GUI client
+  types.py     Core data types
+  config.py    Configuration system
+configs/       YAML configuration files
+data/          Training data and generation scripts
+models/        LoRA adapter weights
+tests/         Test suite
+```
+
+## Logs
+
+- GUI debug log: `/tmp/gui_debug.log`
+- Prompt logs: `/tmp/prompt_logs.jsonl`

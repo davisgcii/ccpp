@@ -2,18 +2,13 @@
 #
 # CC++ PII Masking System - Setup Script
 #
-# This script installs all dependencies required to run the CC++ system:
-# - Homebrew (if not installed)
-# - uv (Python package manager)
-# - Ollama (local LLM server) - checks installation only
+# Installs everything needed to run CC++ on a fresh macOS machine:
+# - Homebrew, uv (Python package manager)
 # - Python dependencies
+# - Creates .env from template
+# - Generates MLX training data if missing
 #
-# The default backend is MLX (Apple Silicon). For Ollama backend,
-# you'll need to manually start Ollama and pull the required models.
-#
-# Usage:
-#   chmod +x setup.sh
-#   ./setup.sh
+# Usage: ./setup.sh
 #
 
 set -e  # Exit on error
@@ -83,34 +78,41 @@ install_uv() {
     fi
 }
 
-# Check/Install Ollama (for optional Ollama backend)
-install_ollama() {
-    print_step "Checking Ollama (optional, for Ollama backend)..."
+# Set up .env file with API key
+setup_env() {
+    print_step "Checking .env file..."
 
-    # Minimum version for logprobs support
-    MIN_VERSION="0.12.11"
-
-    if command -v ollama &> /dev/null; then
-        CURRENT_VERSION=$(ollama --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        print_success "Ollama is installed (v${CURRENT_VERSION})"
-
-        # Check version for logprobs support
-        if [[ "$(printf '%s\n' "$MIN_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)" != "$MIN_VERSION" ]]; then
-            print_warning "Ollama v${CURRENT_VERSION} does not support logprobs (requires v${MIN_VERSION}+)"
-            print_warning "Run 'brew upgrade ollama' to upgrade"
-        fi
-    else
-        print_step "Installing Ollama via Homebrew..."
-        brew install ollama
-        print_success "Ollama installed"
+    # If .env exists and already has a real key, skip
+    if [[ -f ".env" ]] && grep -q '^ANTHROPIC_API_KEY=sk-ant-' .env; then
+        print_success ".env file exists with API key"
+        return
     fi
 
-    # Inform user about required models for Ollama backend
+    # Prompt for the key
     echo
-    print_warning "To use the Ollama backend, you'll need to:"
-    echo "  1. Start Ollama: ollama serve (or brew services start ollama)"
-    echo "  2. Pull models: ollama pull qwen3:0.6b && ollama pull qwen3:1.7b"
-    echo "  3. Update configs/default.yaml to use 'ollama' backend"
+    echo "An Anthropic API key is required for the LLM backend."
+    echo "Get one at: https://console.anthropic.com/settings/keys"
+    echo
+    read -p "Paste your ANTHROPIC_API_KEY (or press Enter to skip): " api_key
+
+    if [[ -n "$api_key" ]]; then
+        cat > .env <<EOL
+# API Keys for LLM backends
+ANTHROPIC_API_KEY=${api_key}
+
+# OpenAI (optional)
+# OPENAI_API_KEY=sk-your-key-here
+
+# Ollama (optional, local models)
+# OLLAMA_HOST=http://localhost:11434
+EOL
+        print_success ".env created with API key"
+    else
+        if [[ ! -f ".env" ]]; then
+            cp .env.example .env
+        fi
+        print_warning "Skipped — add your ANTHROPIC_API_KEY to .env before running the GUI"
+    fi
 }
 
 
@@ -175,22 +177,14 @@ print_usage() {
     echo -e "${GREEN}  Setup Complete!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo
-    echo "Default backend: MLX (Apple Silicon)"
-    echo
     echo "To start the GUI:"
     echo "  uv run python scripts/gui_client.py"
+    echo "  (base models download automatically on first run)"
     echo
-    echo "To run tests:"
-    echo "  uv run pytest"
+    echo "Other commands:"
+    echo "  uv run pytest              # run tests"
     echo
-    echo "Logs are available at:"
-    echo "  /tmp/gui_debug.log"
-    echo "  /tmp/prompt_logs.jsonl"
-    echo
-    echo -e "${YELLOW}Optional: Ollama backend${NC}"
-    echo "  1. Start Ollama: ollama serve"
-    echo "  2. Pull models: ollama pull qwen3:0.6b && ollama pull qwen3:1.7b"
-    echo "  3. Edit configs/default.yaml: set backend to 'ollama'"
+    echo "Logs: /tmp/gui_debug.log, /tmp/prompt_logs.jsonl"
     echo
 }
 
@@ -210,7 +204,7 @@ main() {
     check_macos
     install_homebrew
     install_uv
-    install_ollama
+    setup_env
     install_python_deps
     generate_mlx_data
     verify_installation
