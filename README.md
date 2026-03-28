@@ -26,30 +26,52 @@ Masking triggers on any of: individual risk score >= 0.7, EMA >= 0.4, or strong 
 ## Architecture
 
 ```
-Streaming text
-      |
-      v
-HoldbackBuffer
-      |
-      v
-Fast Heuristics -----> strong match? ----+
-      |                                   |
-      v                                   |
-Stage 1 Router (Qwen3-0.6B)               |
-P(FAIL) score                             |
-      |                                   |
-      v                                   |
-EMA Smoothing                             |
-      |                                   |
-      v                                   |
-any_risk OR ema >= 0.4? -----------------+
-      |                                   |
-      v                                   v
-Stream break? (2s pause) ----------> Stage 2 Redactor (Qwen3-1.7B)
-                                     MASK "entity" category
-                                          |
-                                          v
-                                    Apply masks -> Emit
+          Streaming text
+               │
+               ▼
+        ┌──────────────┐
+        │HoldbackBuffer│
+        └──────┬───────┘
+               │
+     ┌─────────┴───────────┐
+     │  Continuous         │  On stream break (2s pause)
+     │  (during typing)    │  ─────────────────────────
+     │                     │
+     ▼                     │
+  Fast Heuristics          │
+  (regex: email,           │
+   phone, SSN, …)          │
+     │                     │
+     ▼                     │
+  Stage 1 Router           │
+  Qwen3-0.6B               │
+  → P(FAIL) score          │
+     │                     │
+     ▼                     │
+  EMA Smoothing            │
+  (β=0.85, hysteresis)     │
+     │                     │
+     └─────────┬───────────┘
+               │
+               ▼
+       ┌───────────────┐
+       │  Mask? Any:   │
+       │  • risk ≥ 0.7 │
+       │  • ema  ≥ 0.4 │
+       │  • heuristic  │
+       └──┬─────────┬──┘
+       no │         │ yes
+          │         │
+          ▼         ▼
+       Emit    Stage 2 Redactor
+       as-is   Qwen3-1.7B
+               → MASK "entity" category
+                   │
+                   ▼
+              Apply masks
+                   │
+                   ▼
+                 Emit
 ```
 
 ## Configuration
