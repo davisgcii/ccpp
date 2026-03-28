@@ -39,7 +39,6 @@ env/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # uv
 .python-version
@@ -47,22 +46,21 @@ env/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Models and checkpoints
+# Models and checkpoints (downloaded base models)
 checkpoints/
 *.pt
 *.pth
 *.bin
 *.ckpt
-*.safetensors
 *.gguf
 
-# MLX models
+# MLX models (downloaded base models)
 *.npz
 *.mlx
 
-# Datasets (large files)
-data/training/**/*.jsonl
-data/synthetic/
+# Datasets
+# Too large for GitHub (210M), regenerable via: uv run python -m data.scripts.convert_to_mlx --stage 1
+data/training/stage1_mlx/
 data/test_output/
 *.parquet
 *.arrow
@@ -83,7 +81,8 @@ Thumbs.db
 # Claude Code
 .claude/
 
-# Model adapters (large binary files from fine-tuning)
-# Track adapter_config.json for reproducibility, ignore weights and logs
-models/adapters/**/*.safetensors
+# Model adapters (LoRA fine-tuned weights)
+# Track final adapters.safetensors + adapter_config.json
+# Ignore intermediate training checkpoints and wandb logs
+models/adapters/**/[0-9]*_adapters.safetensors
 models/adapters/**/wandb/

@@ -133,6 +133,23 @@ install_python_deps() {
     print_success "Python dependencies installed"
 }
 
+# Generate MLX training data if missing (needed only for retraining)
+generate_mlx_data() {
+    if [[ -d "data/training/stage1_mlx" ]]; then
+        print_success "MLX training data already exists"
+        return
+    fi
+
+    if [[ ! -f "data/training/stage1.train.jsonl" ]]; then
+        print_warning "No stage1 training data found - skipping MLX format generation"
+        return
+    fi
+
+    print_step "Generating stage1 MLX training data (local reformatting, no API key needed)..."
+    uv run python -m data.scripts.convert_to_mlx --stage 1
+    print_success "Stage 1 MLX training data generated"
+}
+
 # Verify installation
 verify_installation() {
     print_step "Verifying installation..."
@@ -195,6 +212,7 @@ main() {
     install_uv
     install_ollama
     install_python_deps
+    generate_mlx_data
     verify_installation
     print_usage
 }
