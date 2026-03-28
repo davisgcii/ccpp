@@ -122,6 +122,15 @@ models/        LoRA adapter weights
 tests/         Test suite
 ```
 
+## References
+
+This project adapts the Constitutional Classifiers approach from jailbreak detection to PII masking in streaming LLM outputs.
+
+- [Constitutional Classifiers](https://arxiv.org/abs/2501.18837) — original CC paper (arXiv)
+- [Constitutional Classifiers++](https://arxiv.org/abs/2601.04603) — CC++ paper (arXiv)
+- [Anthropic blog: Constitutional Classifiers](https://www.anthropic.com/research/constitutional-classifiers)
+- [Anthropic blog: Next-Generation Constitutional Classifiers](https://www.anthropic.com/research/next-generation-constitutional-classifiers) — CC++
+
 ## Logs
 
 - GUI debug log: `/tmp/gui_debug.log`

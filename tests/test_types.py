@@ -105,7 +105,7 @@ class TestRedactorOutput:
         text = "Contact me at john@example.com for details."
         result = output.apply_masks(text)
         assert "john@example.com" not in result
-        assert "[PII/DIRECT]" in result
+        assert "[CONTACT]" in result
 
     def test_apply_masks_multiple_spans(self, sample_mask_spans):
         """Test applying multiple masks."""
@@ -114,7 +114,7 @@ class TestRedactorOutput:
         result = output.apply_masks(text)
         assert "john.doe@company.com" not in result
         assert "555-123-4567" not in result
-        assert result.count("[PII/DIRECT]") == 2
+        assert result.count("[CONTACT]") == 2
 
     def test_apply_masks_custom_format(self):
         """Test custom mask format."""
@@ -132,7 +132,7 @@ class TestRedactorOutput:
         text = "John and john are different."
         result = output.apply_masks(text)
         # Only "John" should be masked, not "john"
-        assert result.count("[PII/DIRECT]") == 1
+        assert result.count("[CONTACT]") == 1
         assert "john" in result  # lowercase should remain
 
     def test_apply_masks_prefers_longer_entities(self):
@@ -144,7 +144,7 @@ class TestRedactorOutput:
         output = RedactorOutput(spans=spans)
         text = "Contact george@gmail.com for help."
         result = output.apply_masks(text)
-        assert "[PII/DIRECT]" in result
+        assert "[CONTACT]" in result
         assert "george@gmail.com" not in result
 
 
