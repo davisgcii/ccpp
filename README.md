@@ -13,6 +13,15 @@ uv run python scripts/gui_client.py    # launches GUI at http://127.0.0.1:7860
 
 The default backend is **MLX** (Apple Silicon). Base models are downloaded automatically from HuggingFace on first run. Pre-trained LoRA adapters are included in the repo.
 
+## Using the GUI
+
+The GUI is a chat interface where you can submit text and observe the streaming classification and masking. Type messages in the input box — the system classifies text in real time as you type, and when you pause for 2 seconds (a "stream break"), it sends the message and streams back an LLM response.
+
+- **Risk chart** updates live as you type, showing per-word P(FAIL) scores
+- **Conversation history** shows prior exchanges with hover tooltips for risk metadata
+- If PII is detected, entities are masked (e.g., `john@gmail.com` → `[CONTACT]`) before the assistant sees the message
+- The assistant response streams back via the Anthropic API (requires `ANTHROPIC_API_KEY` in `.env`)
+
 ## How It Works
 
 Two-stage cascade running on streaming text:
