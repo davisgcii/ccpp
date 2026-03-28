@@ -35,7 +35,7 @@ HoldbackBuffer
 Fast Heuristics -----> strong match? ----+
       |                                   |
       v                                   |
-Stage 1 Router (Qwen3-0.6B)              |
+Stage 1 Router (Qwen3-0.6B)               |
 P(FAIL) score                             |
       |                                   |
       v                                   |
@@ -56,29 +56,29 @@ Stream break? (2s pause) ----------> Stage 2 Redactor (Qwen3-1.7B)
 
 All settings live in `configs/default.yaml`. Key parameters:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `stage1.backend` | `mlx` | `mlx` (Apple Silicon) or `ollama` (cross-platform) |
-| `stage1.model_name` | `mlx-community/Qwen3-0.6B-4bit` | Stage 1 model |
-| `stage2.model_name` | `Qwen/Qwen3-1.7B-MLX-8bit` | Stage 2 model |
-| `streaming.stream_break_timeout_ms` | `2000` | Stream break timeout (ms) |
-| `streaming.t_high` / `t_low` | `0.4` / `0.2` | EMA hysteresis thresholds |
-| `streaming.risk_threshold` | `0.7` | Individual token risk threshold |
+| Setting                             | Default                         | Description                                        |
+| ----------------------------------- | ------------------------------- | -------------------------------------------------- |
+| `stage1.backend`                    | `mlx`                           | `mlx` (Apple Silicon) or `ollama` (cross-platform) |
+| `stage1.model_name`                 | `mlx-community/Qwen3-0.6B-4bit` | Stage 1 model                                      |
+| `stage2.model_name`                 | `Qwen/Qwen3-1.7B-MLX-8bit`      | Stage 2 model                                      |
+| `streaming.stream_break_timeout_ms` | `2000`                          | Stream break timeout (ms)                          |
+| `streaming.t_high` / `t_low`        | `0.4` / `0.2`                   | EMA hysteresis thresholds                          |
+| `streaming.risk_threshold`          | `0.7`                           | Individual token risk threshold                    |
 
 For **Ollama backend**: set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` models, set `sequence_loglikelihood.enabled: false`. Requires Ollama running (`ollama serve`).
 
 ## PII Categories
 
-| Category | Examples |
-|----------|----------|
-| person | Human names |
-| contact | Email, phone numbers |
-| gov_id | SSN, driver's license, passport, date of birth |
-| identifier | Order numbers, account IDs, tracking numbers |
-| location | Street addresses, coordinates |
-| financial | Credit cards, bank accounts |
-| credentials | Passwords, API keys, tokens |
-| medical | Medical record numbers, diagnoses |
+| Category    | Examples                                       |
+| ----------- | ---------------------------------------------- |
+| person      | Human names                                    |
+| contact     | Email, phone numbers                           |
+| gov_id      | SSN, driver's license, passport, date of birth |
+| identifier  | Order numbers, account IDs, tracking numbers   |
+| location    | Street addresses, coordinates                  |
+| financial   | Credit cards, bank accounts                    |
+| credentials | Passwords, API keys, tokens                    |
+| medical     | Medical record numbers, diagnoses              |
 
 ## Testing
 
