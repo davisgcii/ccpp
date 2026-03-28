@@ -2,11 +2,10 @@
 
 ## Overview
 
-The CC++ test suite is organized into three tiers:
+The CC++ test suite is organized into two tiers:
 
 1. **Unit tests** (fast, no external dependencies)
-2. **Integration tests** (may require Ollama/API keys)
-3. **End-to-end tests** (full pipeline validation)
+2. **Integration tests** (require Ollama/API keys, skipped by default)
 
 ## Running Tests
 
@@ -219,13 +218,7 @@ def test_ollama_feature():
 
 ## Continuous Integration
 
-Our CI pipeline runs:
-
-1. **All unit tests** (fast, every commit)
-2. **Integration tests** (slower, on main branch only)
-3. **Coverage reporting** (must maintain > 80% coverage)
-
-### GitHub Actions Example
+If setting up CI, here's an example GitHub Actions configuration:
 
 ```yaml
 - name: Run unit tests

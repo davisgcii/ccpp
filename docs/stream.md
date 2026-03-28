@@ -42,10 +42,10 @@ RETURNS FALSE IF:
 ├── pending_classifications != []   "Pending classifications, returning False"  ← NEW
 ├── buffer == processed_buffer      "Buffer already processed, returning False"
 ├── last_input_time == None         "No last_input_time, returning False"
-└── elapsed < stream_break_timeout  "elapsed=Xs, timeout=3.0s, should_process=False"
+└── elapsed < stream_break_timeout  "elapsed=Xs, timeout=2.0s, should_process=False"
 
 RETURNS TRUE IF:
-└── elapsed >= stream_break_timeout "elapsed=Xs, timeout=3.0s, should_process=True"
+└── elapsed >= stream_break_timeout "elapsed=Xs, timeout=2.0s, should_process=True"
 ```
 
 **Note**: The `pending_classifications` check ensures stream break waits for all queued classifications to complete.
@@ -146,13 +146,11 @@ timer.tick(
 
 ---
 
-## Race Condition Analysis (Historical - Now Fixed)
+## Historical: Race Condition (Fixed)
 
-The following describes the race condition that existed before the queue-based fix was applied.
+For context, this describes the race condition that existed before the queue-based architecture was adopted.
 
-### Timeline of the Bug (Before Fix)
-
-Based on the logs provided:
+### Timeline of the Bug
 
 ```
 00:45:46.396  on_user_type receives "hi " (3 chars)
@@ -187,7 +185,7 @@ Based on the logs provided:
              User's additional keystrokes (after "w") are LOST
 ```
 
-### The Problem (Now Fixed)
+### Root Cause
 
 1. **Lock held too long**: `on_user_type` held the lock during ALL sequential classifications (10+ seconds)
 
@@ -199,102 +197,11 @@ Based on the logs provided:
 
 5. **Lost input**: User typed "hi i'm trying to find where my order is thanks" but only "hi i'm trying to find w" was in the buffer when stream break fired. The rest was in queued events that never got a chance to run.
 
-**This issue is now resolved** by the queue-based architecture described in the "Fix Applied" section.
+Resolved by the queue-based architecture described below.
 
 ---
 
-## Proposed Fixes
-
-### Option A: Release Lock During Classification
-
-```python
-def on_user_type(current_text: str, state: PIIClientState):
-    with state.lock:
-        state.buffer = user_input
-        state.last_input_time = time.time()
-        # ... find spaces ...
-        spaces_to_classify = [...]
-
-    # Release lock, then classify (allow other events to update buffer)
-    for space_pos in spaces_to_classify:
-        with state.lock:
-            state.is_classifying = True
-        try:
-            risk_score = state.stage1.classify(...)
-        finally:
-            with state.lock:
-                state.is_classifying = False
-                # ... update risk history ...
-
-    with state.lock:
-        # ... generate UI ...
-```
-
-**Problem**: Buffer might change between classifications, making results inconsistent.
-
-### Option B: Snapshot Buffer, Don't Block New Input
-
-```python
-def on_user_type(current_text: str, state: PIIClientState):
-    with state.lock:
-        state.buffer = user_input
-        state.last_input_time = time.time()
-        snapshot = user_input  # Work on snapshot
-        spaces_to_classify = [...]
-
-    # Classify snapshot without holding lock
-    results = []
-    for space_pos in spaces_to_classify:
-        risk_score = state.stage1.classify(state.conversation, snapshot[:space_pos+1])
-        results.append((space_pos, risk_score))
-
-    with state.lock:
-        # Only apply results if buffer hasn't changed too much
-        if state.buffer.startswith(snapshot):
-            for space_pos, risk_score in results:
-                # ... update risk history ...
-```
-
-### Option C: Async Classification with Queue
-
-Move classification to a background thread/queue:
-
-```python
-# In on_user_type:
-with state.lock:
-    state.buffer = user_input
-    state.last_input_time = time.time()
-    state.classification_queue.put((user_input, space_positions))
-
-# Background worker:
-while True:
-    text, positions = classification_queue.get()
-    for pos in positions:
-        result = stage1.classify(text[:pos+1])
-        with state.lock:
-            if state.buffer.startswith(text[:pos+1]):
-                state.risk_history.append(...)
-```
-
-### Option D: Defer Stream Break Until Stable
-
-Don't trigger stream break if there are pending events:
-
-```python
-def should_process_buffer(self) -> bool:
-    with self.lock:
-        # ... existing checks ...
-
-        # NEW: Don't process if classification was recent
-        # (more keystrokes might be queued)
-        if self.last_classification_time and \
-           time.time() - self.last_classification_time < 0.5:
-            return False
-```
-
----
-
-## Current State Machine (After Fix)
+## State Machine
 
 ```
 ┌──────────┐    keystroke    ┌──────────────┐
@@ -353,7 +260,7 @@ def should_process_buffer(self) -> bool:
 | Single classification (MLX) | 2,400 - 2,500 ms |
 | Anthropic API call | 1,200 - 1,400 ms |
 | Timer tick interval | 500 ms |
-| Stream break timeout | 3,000 ms |
+| Stream break timeout | 2,000 ms |
 
 **Implication**: If user types 4 words quickly, classification takes ~10s. Timer will definitely fire before classifications complete, but it's blocked. When lock releases, timer has been waiting 7+ seconds and will immediately trigger stream break.
 
@@ -416,7 +323,7 @@ should_process_buffer() - STREAM BREAK GATING:
 00:45:49.550  Timer tick → starts classifying pos=6
 ...timer processes queue one at a time...
 00:46:05.000  User stops typing
-00:46:08.000  Timer tick → queue empty, elapsed > 3s
+00:46:08.000  Timer tick → queue empty, elapsed > 2s
              Stream break fires with COMPLETE buffer
 ```
 

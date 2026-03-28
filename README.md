@@ -83,7 +83,7 @@ For **Ollama backend**: set `backend: ollama`, use `qwen3:0.6b`/`qwen3:1.7b` mod
 ## Testing
 
 ```bash
-uv run pytest                          # all unit tests (131 tests)
+uv run pytest                          # all unit tests (132 tests)
 uv run pytest --cov=src/ccpp           # with coverage
 uv run pytest -m integration           # integration tests (requires Ollama/API keys)
 ```
@@ -105,7 +105,7 @@ uv run python -m mlx_lm.lora --config configs/lora_stage1.yaml
 uv run python -m mlx_lm.lora --config configs/lora_stage2.yaml
 ```
 
-See `CLAUDE.md` for full training pipeline documentation.
+See `data/README.md` for data format details and `CLAUDE.md` for full training commands.
 
 ## Project Structure
 

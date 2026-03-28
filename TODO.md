@@ -14,7 +14,7 @@ CC++-inspired streaming PII masker for black-box LLMs.
 - Stream break detection and EMA smoothing
 - GUI client with real-time visualization
 - Configuration system (YAML)
-- 131 unit/integration tests passing
+- 132 unit/integration tests passing
 - Prompt templates with `Answer:` ending (prevents model echo)
 - Qwen3 `think=False` integration
 - Training data generation pipeline (`data/scripts/`)
@@ -33,108 +33,30 @@ CC++-inspired streaming PII masker for black-box LLMs.
 
 ---
 
-## Phase 3: Synthetic Data Generation ✅
+## Completed Phases
 
-**Completed** - Pipeline implemented in `data/scripts/`
-
-### Stage 1 Training Data
-Each record needs:
-- `messages`: Conversation context (may include historical PII)
-- `current_buffer`: Text being classified
-- `label`: `SAFE` or `FAIL` (applies to current_buffer only!)
-- **Critical**: Historical PII in messages does NOT cause FAIL label
-
-### Stage 2 Training Data
-Each record needs:
-- `messages`: Conversation context
-- `window_text`: Exact redaction window (buffer + overlap tail)
-- `entities`: `[{entity_text, category}]`
-- `target_output`: `PASS` or `MASK "entity" category`
-
-### Generator Tasks
-- [x] Create prompts using placeholders (`<EMAIL>`, `<PHONE>`, `<NAME>`, etc.)
-- [x] Hydrate placeholders with synthetic PII (Claude Haiku generates realistic voice conversations)
-- [x] Generate buffer-scoped labels for Stage 1 (formatter.py)
-- [x] Generate Stage 2 entity extraction training data (stage2_formatter.py)
-- [ ] Generate benign "near misses" (example.com, test keys) - needs more examples
+### Phase 3: Synthetic Data Generation ✅
+Pipeline implemented in `data/scripts/`. See `data/README.md` for format details.
+- [x] Synthetic conversation generator (Claude Haiku)
+- [x] Stage 1 prefix classification formatter
+- [x] Stage 2 entity extraction formatter
+- [ ] Generate benign "near misses" (example.com, test keys) — needs more examples
 - [ ] Output JSONL train/val splits with proper ratio
 
----
-
-## Phase 4: Data Augmentation
-
-### Basic Augmentations
+### Phase 4: Data Augmentation (Partial)
+- [x] Split entities across stream breaks (5% of PII conversations)
 - [ ] Paraphrase, translate/back-translate
 - [ ] Formatting variations (tables, code blocks)
-- [ ] Role-play wrappers
-
-### Reconstruction-Style Augmentations
-- [x] Split entities across stream breaks: "it's george" + [break] + "@gmail.com"
-  - Added SPLIT_ENTITY_RATIO (5% of PII conversations)
-  - Instruction appended to PII prompt when triggered
-  - Tracked via `has_split_entities` field in conversation metadata
 - [ ] Insert separators/unicode within entities
-- [ ] "Contact card" formatting
 
----
-
-## Phase 5: Training ✅
-
-**Framework**: mlx-lm native fine-tuning with LoRA adapters (Apple Silicon optimized)
-
-### Infrastructure ✅
-- [x] Create `data/scripts/convert_to_mlx.py` - Convert JSONL to mlx-lm chat format
-- [x] Create `data/scripts/test_pipeline.py` - End-to-end pipeline test with forward pass
-- [x] Create `configs/lora_stage1.yaml` - Stage 1 LoRA training config
-- [x] Create `configs/lora_stage2.yaml` - Stage 2 LoRA training config
-- [x] Add `adapter_path` support to `src/ccpp/llm/mlx_backend.py`
-- [x] Update `src/ccpp/llm/factory.py` to pass adapter_path
-- [x] Update `src/ccpp/config.py` to extract adapter_path
-- [x] Add `models/adapters/` to `.gitignore`
-
-### Qwen3 Thinking Token Handling
-Qwen3 uses `<think>...</think>` scaffolding for chain-of-thought reasoning:
-- **Default behavior**: Model outputs thinking content, then answer
-- **With `enable_thinking=False`**: Adds empty `<think>\n\n</think>\n\n` scaffold
-- **Training format**: Assistant response is `<think>\n\n</think>\n\nSAFE` (or FAIL)
-- **Inference**: Model should output SAFE/FAIL directly after the scaffold
-
-**Key insight**: mlx-lm training applies the chat template, which includes the empty
-think scaffold. Training teaches the model to output the label directly without
-generating thinking content. The `extract_sequence_probs` method in MLX backend
-computes P(SAFE) vs P(FAIL) as full sequences, bypassing generation entirely.
-
-### Stage 1 (Logit-Based Router) ✅
-- Model: `mlx-community/Qwen3-0.6B-4bit`
-- Output: `models/adapters/stage1/qwen3-0.6b-pii-classifier/`
-- [x] Train Stage 1 adapter with mlx-lm (1000 iters, val_loss 5.38→0.028)
+### Phase 5: Training ✅
+LoRA fine-tuning via mlx-lm on Apple Silicon:
+- Stage 1 adapter: `models/adapters/stage1/qwen3-0.6b-pii-classifier/` (val_loss 5.38 → 0.028)
+- Stage 2 adapter: `models/adapters/stage2/qwen3-1.7b-pii-redactor/` (val_loss 0.28 → 0.070)
 - [ ] Validate SAFE/FAIL accuracy on held-out test set
-
-### Stage 2 (Entity Redactor) ✅
-- Model: `Qwen/Qwen3-1.7B-MLX-8bit`
-- Output: `models/adapters/stage2/qwen3-1.7b-pii-redactor/`
-- [x] Train Stage 2 adapter with mlx-lm (1500 iters, val_loss 0.28→0.070)
 - [ ] Validate entity extraction accuracy
 
-### Training Commands
-```bash
-# Quick pipeline test (1 conversation, no forward pass)
-uv run python -m data.scripts.test_pipeline --quick
-
-# Full pipeline test (2 conversations, with forward pass)
-uv run python -m data.scripts.test_pipeline --output-dir data/test_output
-
-# Full training workflow
-uv run python -m data.scripts.main all --count 1000
-uv run python -m data.scripts.convert_to_mlx --stage 1
-uv run python -m data.scripts.convert_to_mlx --stage 2
-uv run python -m mlx_lm.lora --config configs/lora_stage1.yaml
-uv run python -m mlx_lm.lora --config configs/lora_stage2.yaml
-
-# After training, enable adapters in configs/default.yaml:
-# stage1.adapter_path: models/adapters/stage1/qwen3-0.6b-pii-classifier
-# stage2.adapter_path: models/adapters/stage2/qwen3-1.7b-pii-redactor
-```
+See `CLAUDE.md` for full training commands and Qwen3 thinking-token details.
 
 ---
 
@@ -144,7 +66,6 @@ uv run python -m mlx_lm.lora --config configs/lora_stage2.yaml
 - [ ] Entity-level precision/recall/F1 (exact and partial match)
 - [ ] False positive rate on benign corpora (<0.1% target)
 - [ ] Stage 2 escalation rate (~10-20%)
-- [ ] Latency: Stage 1 <20ms, Stage 2 <100ms
 
 ### Calibration
 - [ ] Tune T_high, T_low, ema_beta on benign dataset

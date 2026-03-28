@@ -149,7 +149,7 @@ Key settings:
 - Use `uv` for all Python commands (not pip/conda)
 - GUI is the primary interface: `scripts/gui_client.py`
 - Logs available at `/tmp/gui_debug.log` and `/tmp/prompt_logs.jsonl`
-- All 131 tests should pass: `uv run pytest`
+- All 132 tests should pass: `uv run pytest`
 
 ## Dataset Generation
 

@@ -13,10 +13,12 @@ CC++ uses a hierarchical YAML-based configuration system that supports:
 
 ```
 configs/
-└── default.yaml    # Base configuration (MLX backend)
+├── default.yaml       # Base configuration (MLX backend)
+├── lora_stage1.yaml   # LoRA training config for Stage 1
+└── lora_stage2.yaml   # LoRA training config for Stage 2
 ```
 
-**Note**: Additional environment-specific configs (dev.yaml, prod.yaml) can be created as needed.
+You can create environment-specific override files (e.g., `dev.yaml`, `prod.yaml`) to layer on top of `default.yaml`.
 
 ## Loading Configuration
 
@@ -108,8 +110,8 @@ stage2:
 ```yaml
 streaming:
   stream_break_timeout_ms: 2000   # Time since last token → trigger masking (2s for voice pauses)
-  holdback_buffer_size: 512       # Max buffer size before forcing decision
-  overlap_chars: 64               # Chars to retain for cross-utterance detection
+  holdback_buffer_size: 2048      # Max buffer size before forcing decision
+  overlap_chars: 128              # Chars to retain for cross-utterance detection
 
   # EMA (Exponential Moving Average) settings
   ema_beta: 0.85                  # Smoothing factor (0.8-0.9)
@@ -159,9 +161,9 @@ masking:
 
 ## Environment-Specific Overrides
 
-You can create environment-specific override files (e.g., `dev.yaml`, `prod.yaml`) that override `default.yaml`.
+Create environment-specific override files that layer on top of `default.yaml`. Only include the settings you want to change.
 
-### Example Development Override (`dev.yaml`)
+### Example Development Override (`configs/dev.yaml`)
 
 ```yaml
 streaming:
@@ -171,7 +173,7 @@ logging:
   level: DEBUG                     # Verbose logging
 ```
 
-### Example Production Override (`prod.yaml`)
+### Example Production Override (`configs/prod.yaml`)
 
 ```yaml
 stage1:
@@ -221,7 +223,7 @@ The default configuration uses MLX backend for Apple Silicon:
 # configs/default.yaml (current)
 stage1:
   backend: mlx
-  model_name: Qwen/Qwen3-1.7B-MLX-8bit
+  model_name: mlx-community/Qwen3-0.6B-4bit
 
 stage2:
   backend: mlx
