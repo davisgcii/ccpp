@@ -129,7 +129,7 @@ This project adapts the Constitutional Classifiers approach from jailbreak detec
 - [Constitutional Classifiers](https://arxiv.org/abs/2501.18837) — original CC paper (arXiv)
 - [Constitutional Classifiers++](https://arxiv.org/abs/2601.04603) — CC++ paper (arXiv)
 - [Anthropic blog: Constitutional Classifiers](https://www.anthropic.com/research/constitutional-classifiers)
-- [Anthropic blog: Next-Generation Constitutional Classifiers](https://www.anthropic.com/research/next-generation-constitutional-classifiers) — CC++
+- [Anthropic blog: Next-Generation Constitutional Classifiers](https://www.anthropic.com/research/next-generation-constitutional-classifiers)
 
 ## Logs
 
