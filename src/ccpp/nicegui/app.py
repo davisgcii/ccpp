@@ -609,7 +609,7 @@ def create_app(state: PIIClientState) -> None:
                     with ui.column().classes("w-full gap-2").style(
                         "flex-shrink: 0; margin-top: auto;"
                     ):
-                        with ui.row().classes("w-full items-end gap-2"):
+                        with ui.row().classes("w-full items-center gap-2"):
                             _components["input"] = ui.textarea(
                                 placeholder="Type your message here...",
                                 on_change=on_user_type,
@@ -630,9 +630,9 @@ def create_app(state: PIIClientState) -> None:
                                 icon="send",
                                 on_click=on_send_click,
                             ).classes("apple-btn-primary").style(
-                                "min-width: 44px; height: 44px; padding: 0 12px; "
+                                "min-width: 40px; width: 40px; height: 40px; padding: 0; "
                                 "border-radius: 12px !important;"
-                            ).props("dense")
+                            ).props("dense flat")
 
             # ── Timer ──
             ui.timer(0.5, callback=on_timer_tick)

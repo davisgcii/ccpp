@@ -446,10 +446,14 @@ class ReviewPanel:
 
                 ui.button("Edit", on_click=self._on_edit_click).classes(
                     "apple-btn-secondary"
-                ).props("dense no-caps").style("padding: 4px 16px; font-size: 13px; height: 32px;")
+                ).props("dense no-caps unelevated").style(
+                    "padding: 0 16px; font-size: 13px; height: 32px; line-height: 32px;"
+                )
                 ui.button("Send masked", on_click=self._on_send_click).classes(
                     "apple-btn-primary"
-                ).props("dense no-caps").style("padding: 4px 16px; font-size: 13px; height: 32px;")
+                ).props("dense no-caps unelevated").style(
+                    "padding: 0 16px; font-size: 13px; height: 32px; line-height: 32px;"
+                )
 
             # Masked preview (single line)
             self._masked_preview_label = ui.label(masked_text).style(
