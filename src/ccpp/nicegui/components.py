@@ -624,8 +624,12 @@ class StatusIndicator:
         chars_processed: int = 0,
         was_masked: bool = False,
         error: Optional[str] = None,
+        send_blocked: bool = False,
     ) -> None:
-        if error:
+        if send_blocked:
+            self._dot.content = self._dot_html(COLORS["risk_warning"])
+            self._label.text = "Analyzing — send when ready"
+        elif error:
             self._dot.content = self._dot_html(COLORS["risk_danger"])
             self._label.text = f"Error: {error}"
         elif is_processing:

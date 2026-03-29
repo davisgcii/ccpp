@@ -196,8 +196,8 @@ print_done() {
     echo -e "  ${GREEN}└──────────────────────────────────────────┘${NC}"
     echo
     echo -e "  ${BOLD}Start the GUI:${NC}"
-    echo "    uv run python scripts/gui_client.py"
-    echo -e "    ${DIM}→ opens at http://127.0.0.1:7860${NC}"
+    echo "    uv run python scripts/nicegui_client.py"
+    echo -e "    ${DIM}→ opens at http://127.0.0.1:8080${NC}"
     echo
     echo -e "  ${BOLD}Run tests:${NC}"
     echo "    uv run pytest"

@@ -241,6 +241,10 @@ def create_app(state: PIIClientState) -> None:
         with state.lock:
             if state.is_processing or not state.buffer.strip():
                 return
+            if state.pending_classifications or state.is_classifying:
+                logger.info("[SEND] blocked — classification still in progress")
+                _components["status"].update(send_blocked=True)
+                return
 
         logger.info(
             f"[SEND] buf={len(state.buffer)}ch "

@@ -2,6 +2,8 @@
 
 A CC++-inspired streaming exchange classifier for PII detection and masking in black-box hosted LLMs.
 
+![CC++ PII Masking GUI](docs/ccpp_screenshot.png)
+
 ## Quick Start
 
 ```bash
