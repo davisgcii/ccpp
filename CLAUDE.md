@@ -7,9 +7,9 @@ Guidance for coding agents working in this repository.
 ## Quick Start
 
 ```bash
-uv sync                              # Install dependencies
-uv run python scripts/gui_client.py  # Launch GUI (http://127.0.0.1:7860)
-uv run pytest                        # Run tests
+uv sync                                    # Install dependencies
+uv run python scripts/nicegui_client.py    # Launch GUI (http://127.0.0.1:8080)
+uv run pytest                              # Run tests
 ```
 
 ## Project Intent
@@ -110,11 +110,13 @@ Uses entity text (not character offsets) because LLMs are bad at counting.
 src/ccpp/
 ├── infer/           # Inference pipeline (guard, stage1_router, stage2_redactor, heuristics)
 ├── llm/             # LLM backends (MLX, Ollama, Anthropic, OpenAI)
-├── gui/             # GUI client (state, components, app)
+├── nicegui/         # NiceGUI GUI client (app, components, styles)
+├── gui/             # Gradio GUI client (state, components, app)
 ├── types.py         # Core data types
 └── config.py        # Configuration system
 scripts/
-└── gui_client.py    # Interactive GUI client
+├── nicegui_client.py # NiceGUI client (primary)
+└── gui_client.py    # Gradio GUI client (legacy)
 data/
 ├── scripts/         # Training data generation pipeline
 ├── constitutions/   # PII definitions for training data
@@ -147,7 +149,7 @@ Key settings:
 ## Development Notes
 
 - Use `uv` for all Python commands (not pip/conda)
-- GUI is the primary interface: `scripts/gui_client.py`
+- GUI is the primary interface: `scripts/nicegui_client.py` (port 8080)
 - Logs available at `/tmp/gui_debug.log` and `/tmp/prompt_logs.jsonl`
 - All 132 tests should pass: `uv run pytest`
 

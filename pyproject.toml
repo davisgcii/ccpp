@@ -26,7 +26,8 @@ dependencies = [
     "rich>=13.7.0",  # Terminal UI
     "python-dotenv>=1.0.0",  # Load .env files
     "blessed>=1.20.0",  # Terminal input handling
-    "gradio>=4.0.0",  # GUI client
+    "gradio>=4.0.0",  # GUI client (Gradio version)
+    "nicegui>=2.0.0",  # GUI client (NiceGUI Apple Design version)
     # MLX backend (Apple Silicon)
     "mlx>=0.4.0; platform_machine == 'arm64'",
     "mlx-lm>=0.4.0; platform_machine == 'arm64'",
@@ -63,3 +64,4 @@ select = ["E", "F", "I", "W"]
 
 [project.scripts]
 ccpp-gui = "scripts.gui_client:main"
+ccpp-nicegui = "scripts.nicegui_client:main"

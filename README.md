@@ -7,20 +7,30 @@ A CC++-inspired streaming exchange classifier for PII detection and masking in b
 ```bash
 git clone https://github.com/davisgcii/ccpp.git
 cd ccpp
-./setup.sh                             # installs deps, prompts for API key
-uv run python scripts/gui_client.py    # launches GUI at http://127.0.0.1:7860
+./setup.sh                                # installs deps, prompts for API key
+uv run python scripts/nicegui_client.py   # launches GUI at http://127.0.0.1:8080
 ```
 
 The default backend is **MLX** (Apple Silicon). Base models are downloaded automatically from HuggingFace on first run. Pre-trained LoRA adapters are included in the repo.
 
 ## Using the GUI
 
-The GUI is a chat interface where you can submit text and observe the streaming classification and masking. Type messages in the input box — the system classifies text in real time as you type, and when you pause for 2 seconds (a "stream break"), it sends the message and streams back an LLM response.
+The GUI is a two-panel chat interface built with NiceGUI. Type messages in the input box and press Enter (or click Send) to submit.
 
-- **Risk chart** updates live as you type, showing per-word P(FAIL) scores
-- **Conversation history** shows prior exchanges with hover tooltips for risk metadata
-- If PII is detected, entities are masked (e.g., `john@gmail.com` → `[CONTACT]`) before the assistant sees the message
-- The assistant response streams back via the Anthropic API (requires `ANTHROPIC_API_KEY` in `.env`)
+**Left panel — Risk Analysis:**
+- **ECharts risk chart** updates live as you type, showing per-word P(FAIL) scatter dots and a smoothed EMA line with threshold markers
+- **Utterance log** persists across messages with colored underlines (green/orange/red) showing risk per word
+- Chart is continuous across the conversation — word indices don't reset between messages
+- Hover over any dot to see the P(Risk) score, EMA value, and the exact text that was classified
+
+**Right panel — Conversation:**
+- iMessage-style chat bubbles (user = blue, assistant = gray)
+- If PII is detected, a **review panel** appears showing detected entities as toggleable pills — approve or reject each mask before sending
+- Masked messages show a "Modified" badge; click to toggle between original and masked text
+- Assistant responses render markdown
+
+The assistant responds via the Anthropic API (requires `ANTHROPIC_API_KEY` in `.env`).
+
 
 ## How It Works
 
@@ -144,6 +154,7 @@ See `data/README.md` for data format details and `CLAUDE.md` for full training c
 src/ccpp/
   infer/       Stage 1 router, Stage 2 redactor, heuristics, guard
   llm/         LLM backends (MLX, Ollama, Anthropic, OpenAI)
+  nicegui/     NiceGUI GUI client
   gui/         Gradio GUI client
   types.py     Core data types
   config.py    Configuration system
