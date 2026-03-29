@@ -36,43 +36,37 @@ The assistant responds via the Anthropic API (requires `ANTHROPIC_API_KEY` in `.
 
 ## How It Works
 
-Two-stage cascade running on streaming text:
+Two-stage cascade running on user input as they type:
 
-1. **Stage 1 (Router)** - Fast SAFE/FAIL classification using Qwen3-0.6B via MLX sequence log-likelihood (~1-2s per classification)
-2. **Stage 2 (Redactor)** - Entity extraction using Qwen3-1.7B, invoked only at stream breaks when risk is detected
-3. **Fast heuristics** - Regex patterns (email, phone, SSN, API keys) run before Stage 1 for instant detection
+1. **Stage 1 (Router)** - Fast SAFE/FAIL classification using Qwen3-0.6B via MLX sequence log-likelihood (~400ms per classification, triggered at each word boundary)
+2. **Stage 2 (Redactor)** - Entity extraction using Qwen3-1.7B, invoked on submit when risk is detected
+3. **Fast heuristics** - Regex patterns (email, phone, SSN, API keys) checked on submit for instant detection
 
 Masking triggers on any of: individual risk score >= 0.7, EMA >= 0.4, or strong heuristic match.
 
 ## Architecture
 
 ```
-          Streaming text
+     User types in input box
                │
                ▼
-        ┌──────────────┐
-        │HoldbackBuffer│
-        └──────┬───────┘
+     ┌─────────────────────┐
+     │  While typing        │
+     │  (at each word       │
+     │   boundary)          │
+     │                      │
+     │  Stage 1 Router      │
+     │  Qwen3-0.6B          │
+     │  → P(FAIL) score     │
+     │         │             │
+     │         ▼             │
+     │  EMA Smoothing        │
+     │  (β=0.85, hysteresis) │
+     │         │             │
+     │  Live risk chart      │
+     └─────────┬─────────────┘
                │
-     ┌─────────┴───────────┐
-     │  Continuous         │  On stream break (2s pause)
-     │  (during typing)    │  ─────────────────────────
-     │                     │
-     ▼                     │
-  Fast Heuristics          │
-  (regex: email,           │
-   phone, SSN, …)          │
-     │                     │
-     ▼                     │
-  Stage 1 Router           │
-  Qwen3-0.6B               │
-  → P(FAIL) score          │
-     │                     │
-     ▼                     │
-  EMA Smoothing            │
-  (β=0.85, hysteresis)     │
-     │                     │
-     └─────────┬───────────┘
+        User hits Enter
                │
                ▼
        ┌───────────────┐
@@ -84,15 +78,16 @@ Masking triggers on any of: individual risk score >= 0.7, EMA >= 0.4, or strong 
        no │         │ yes
           │         │
           ▼         ▼
-       Emit    Stage 2 Redactor
+       Send    Stage 2 Redactor
        as-is   Qwen3-1.7B
                → MASK "entity" category
                    │
                    ▼
-              Apply masks
+              Review panel
+              (approve/reject)
                    │
                    ▼
-                 Emit
+                 Send
 ```
 
 ## Configuration
@@ -104,7 +99,6 @@ All settings live in `configs/default.yaml`. Key parameters:
 | `stage1.backend`                    | `mlx`                           | `mlx` (Apple Silicon) or `ollama` (cross-platform) |
 | `stage1.model_name`                 | `mlx-community/Qwen3-0.6B-4bit` | Stage 1 model                                      |
 | `stage2.model_name`                 | `Qwen/Qwen3-1.7B-MLX-8bit`      | Stage 2 model                                      |
-| `streaming.stream_break_timeout_ms` | `2000`                          | Stream break timeout (ms)                          |
 | `streaming.t_high` / `t_low`        | `0.4` / `0.2`                   | EMA hysteresis thresholds                          |
 | `streaming.risk_threshold`          | `0.7`                           | Individual token risk threshold                    |
 
