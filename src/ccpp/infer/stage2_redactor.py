@@ -109,7 +109,7 @@ class Stage2Redactor:
 
         Args:
             messages: Conversation history (for context)
-            window_text: Text to extract entities from (with overlap tail)
+            window_text: Text to extract entities from (the current buffer)
 
         Returns:
             RedactorOutput with list of MaskSpan objects
@@ -317,7 +317,9 @@ class Stage2Redactor:
 
         for match in mask_pattern.finditer(output):
             entity_text = match.group(1).replace('""', '"')
-            category_str = match.group(2).lower().replace("-", "_")
+            # Strip trailing punctuation (e.g. "financial;" from "...; MASK ...")
+            # so it maps to the right category instead of defaulting to identifier.
+            category_str = match.group(2).lower().strip(";,. ").replace("-", "_")
 
             # Map category string to PIICategory enum
             # Categories match training data: person, contact, gov_id, identifier,

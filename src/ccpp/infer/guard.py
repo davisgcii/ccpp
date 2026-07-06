@@ -22,8 +22,7 @@ class EmitDecision:
     spans before masks are applied, then call ``flush_emitted()`` to reset state.
     """
 
-    text: str  # Raw (unmasked) buffer text
-    window: str  # Window including overlap tail that Stage 2 evaluated
+    text: str  # Raw (unmasked) buffer text that Stage 2 evaluated
     should_mask: bool  # Whether the masking triggers fired
     redactor_output: Optional[RedactorOutput] = None  # Spans if should_mask, else None
     strong_heuristic: bool = False
@@ -74,7 +73,7 @@ class ExchangePIIGuard:
         self.reset_ema_on_stream_break = reset_ema_on_stream_break
 
         # State
-        self.buffer = HoldbackBuffer(max_overlap=64)
+        self.buffer = HoldbackBuffer()
         self.risk_state = RiskState(
             beta=ema_beta,
             t_high=risk_threshold_high,
@@ -210,14 +209,13 @@ class ExchangePIIGuard:
             or strong_match
         )
 
-        window = self.buffer.get_window_with_overlap()
+        text = self.buffer.raw_text
         redactor_output = None
         if should_mask:
-            redactor_output = self.stage2.redact(self.messages, window)
+            redactor_output = self.stage2.redact(self.messages, text)
 
         return EmitDecision(
-            text=self.buffer.raw_text,
-            window=window,
+            text=text,
             should_mask=should_mask,
             redactor_output=redactor_output,
             strong_heuristic=strong_match,
@@ -227,10 +225,10 @@ class ExchangePIIGuard:
     def flush_emitted(self) -> None:
         """Reset buffer + risk state after an emission has been applied.
 
-        Retains the overlap tail so PII split across the boundary is still
-        detectable on the next window.
+        Cross-buffer risk continuity is carried by the EMA (RiskState), not by
+        retaining any text, so the buffer is simply cleared.
         """
-        self.buffer.flush(keep_overlap=True)
+        self.buffer.flush()
         self.any_risk_in_buffer = False
 
         if self.reset_ema_on_stream_break:
@@ -292,7 +290,7 @@ class ExchangePIIGuard:
 
     def reset(self):
         """Reset guard state (for new conversation)."""
-        self.buffer = HoldbackBuffer(max_overlap=64)
+        self.buffer = HoldbackBuffer()
         self.risk_state = RiskState(
             beta=self.risk_state.beta,
             t_high=self.risk_state.t_high,

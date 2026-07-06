@@ -76,30 +76,34 @@ class TestBuffering:
         assert any(e["type"] == "masked" for e in events)
 
 
-class TestOverlapTail:
-    def test_overlap_catches_boundary_split_entity(self):
-        """A phone split across two utterances is detected via the overlap tail."""
-        guard = make_guard(score=0.9, entities=[("415-555-0147", PIICategory.CONTACT)])
+class TestNoOverlap:
+    """The overlap tail was removed: each buffer is evaluated on its own text;
+    cross-buffer risk continuity is carried by the EMA, not by retained text."""
 
-        # First utterance ends mid-number; emit so it flushes but retains overlap.
+    def test_flush_retains_no_text(self):
+        guard = make_guard(score=0.9, entities=[("a@b.com", PIICategory.CONTACT)])
+        guard.ingest_chunk("mail a@b.com")
+        guard.force_emit()
+        assert guard.buffer.raw_text == ""
+        assert not hasattr(guard.buffer, "overlap_tail")
+
+    def test_next_buffer_evaluated_on_its_own_text(self):
+        guard = make_guard(score=0.9, entities=[("415-555-0147", PIICategory.CONTACT)])
         guard.ingest_chunk("call me at 415-555")
         guard.force_emit()
-        assert guard.buffer.overlap_tail  # tail retained
-
-        # Second utterance completes the number.
         guard.ingest_chunk("-0147 thanks")
         decision = guard.evaluate_buffer()
+        # Stage 2 sees only the current buffer — no prior text spliced in.
+        assert decision.text == "-0147 thanks"
 
-        # The window spans the boundary and Stage 2 sees the full number...
-        assert "415-555-0147" in decision.window
-        assert any(s.entity_text == "415-555-0147" for s in decision.redactor_output.spans)
-
-    def test_without_overlap_the_split_is_not_detected(self):
-        """Control: the raw second buffer alone does not contain the entity."""
-        guard = make_guard(score=0.9, entities=[("415-555-0147", PIICategory.CONTACT)])
-        guard.ingest_chunk("-0147 thanks")  # no prior context/overlap
-        decision = guard.evaluate_buffer()
-        assert "415-555-0147" not in decision.window
+    def test_ema_persists_across_flush(self):
+        """EMA carries cross-buffer risk continuity (not reset on flush)."""
+        guard = make_guard(score=0.9)
+        guard.ingest_chunk("my ssn is 123")
+        ema_before = guard.risk_state.ema_risk
+        assert ema_before > 0
+        guard.force_emit()
+        assert guard.risk_state.ema_risk == ema_before
 
 
 class TestStreamBreak:
@@ -149,13 +153,12 @@ class TestEvaluateFlushFlow:
         # Buffer is untouched — caller can show a review panel first.
         assert guard.buffer.raw_text == "mail a@b.com "
 
-    def test_flush_emitted_clears_buffer_and_keeps_overlap(self):
+    def test_flush_emitted_clears_buffer(self):
         guard = make_guard(score=0.9, entities=[("a@b.com", PIICategory.CONTACT)])
         guard.ingest_chunk("mail a@b.com ")
         guard.evaluate_buffer()
         guard.flush_emitted()
         assert guard.buffer.raw_text == ""
-        assert guard.buffer.overlap_tail == "mail a@b.com "
         assert guard.any_risk_in_buffer is False
 
     def test_evaluate_safe_when_low_risk(self):
