@@ -13,11 +13,13 @@ uv run python scripts/nicegui_client.py   # launches demo GUI at http://127.0.0.
 
 Default backend is **MLX** (Apple Silicon). For cross-platform support, use [Ollama](#configuration). Base models download automatically on first run; pre-trained LoRA adapters are included.
 
+> **About the demo:** the GUI redacts the text *you type* — a stand-in for a live transcribed-speech stream — and runs the masking decision when you hit **Send**. In a real deployment the same cascade would run continuously on an incoming stream.
+
 ## Overview
 
 The CC++ papers introduce a streaming two-stage cascade for jailbreak detection: a cheap, fast classifier scores every chunk of model output, and an expensive, precise model only activates when risk is flagged. This keeps false positives low and inference overhead small.
 
-This project applies the same architecture to **PII masking** instead. A key addition is _speculative classification_ — the Stage 1 model is trained on prefixes of PII-containing messages, so it can flag risk before PII is fully present (e.g., "my email is" triggers before the address appears). This helps in streaming/voice contexts where PII arrives incrementally or is split across utterances.
+This project applies the same architecture to **PII masking** instead — the same streaming cascade redacts PII from a text stream (rather than blocking harmful model output). A key addition is _speculative classification_ — the Stage 1 model is trained on prefixes of PII-containing messages, so it can flag risk before PII is fully present (e.g., "my email is" triggers before the address appears). This helps in streaming/voice contexts where PII arrives incrementally or is split across utterances.
 
 ## Architecture
 

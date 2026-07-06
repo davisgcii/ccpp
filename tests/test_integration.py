@@ -146,7 +146,7 @@ class TestAnthropicIntegration:
 
         prob_safe, prob_risk = backend.extract_logit_probs(
             messages=[{"role": "user", "content": "Hello, how are you?"}],
-            config=LogitExtractionConfig(token_a="SAFE", token_b="RISK"),
+            config=LogitExtractionConfig(token_a="SAFE", token_b="FAIL"),
         )
 
         assert isinstance(prob_safe, float)

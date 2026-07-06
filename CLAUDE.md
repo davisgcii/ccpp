@@ -14,7 +14,7 @@ uv run pytest                              # Run tests (132 tests)
 
 ## Project Intent
 
-This repo implements a **CC++-inspired streaming exchange classifier** for PII detection and masking. We are **not** building jailbreak refusal — we are building **PII detection + masking (redaction)** in streaming outputs.
+This repo implements a **CC++-inspired streaming exchange classifier** for PII detection and masking. We are **not** building jailbreak refusal — we are building **PII detection + masking (redaction)** on a streaming text exchange. (The NiceGUI demo masks the user's typed input as a stand-in for a transcribed-speech stream; **Send** triggers the masking decision.)
 
 See `README.md` for a high-level overview of the architecture and the CC++ papers it's based on.
 

@@ -102,7 +102,7 @@ class Stage1Router:
             current_text: Current buffer text being evaluated
 
         Returns:
-            RiskScore with P(RISK) ∈ [0, 1]
+            RiskScore with P(FAIL) ∈ [0, 1]
         """
         if self.mock_mode:
             return self._mock_classify(messages, current_text)
@@ -143,14 +143,14 @@ class Stage1Router:
         Uses logit-based classification via the LLM harness:
         1. Format prompt with few-shot examples + conversation + current_text
         2. Extract logit probabilities via backend
-        3. Return RiskScore with P(RISK)
+        3. Return RiskScore with P(FAIL)
 
         Args:
             messages: Conversation history
             current_text: Current buffer text
 
         Returns:
-            RiskScore with P(RISK) probability
+            RiskScore with P(FAIL) probability
         """
         import logging
         logger = logging.getLogger(__name__)

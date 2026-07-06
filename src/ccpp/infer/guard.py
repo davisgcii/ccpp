@@ -41,9 +41,9 @@ class ExchangePIIGuard:
         stage1: Optional[Stage1Router] = None,
         stage2: Optional[Stage2Redactor] = None,
         heuristics: Optional[FastHeuristics] = None,
-        stream_break_timeout: float = 0.5,  # seconds
-        risk_threshold_high: float = 0.6,
-        risk_threshold_low: float = 0.3,
+        stream_break_timeout: float = 2.0,  # seconds (matches configs/default.yaml)
+        risk_threshold_high: float = 0.4,  # T_high (matches configs/default.yaml)
+        risk_threshold_low: float = 0.2,  # T_low (matches configs/default.yaml)
         risk_threshold_immediate: float = 0.7,  # For any_risk_in_buffer flag
         ema_beta: float = 0.85,
         reset_ema_on_stream_break: bool = False,  # Default: let EMA decay naturally

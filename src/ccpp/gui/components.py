@@ -199,7 +199,7 @@ def _create_details_section(metadata: dict) -> str:
         char_info = sample.get('char', '?') if isinstance(sample, dict) else getattr(sample, 'char', '?')
         char_idx = sample.get('idx', 0) if isinstance(sample, dict) else getattr(sample, 'idx', 0)
         char_risk = get_risk(sample)
-        lines.append(f'<div style="color: #888; margin-bottom: 4px;">Highest-risk char: <span style="color: #ff6b6b;">"{html_lib.escape(str(char_info))}"</span> (index {char_idx}, P(RISK)={char_risk:.3f})</div>')
+        lines.append(f'<div style="color: #888; margin-bottom: 4px;">Highest-risk char: <span style="color: #ff6b6b;">"{html_lib.escape(str(char_info))}"</span> (index {char_idx}, P(FAIL)={char_risk:.3f})</div>')
 
         # Show raw classifier prompt (full, not truncated)
         classifier_prompt = sample.get('classifier_prompt', [])
@@ -225,7 +225,7 @@ def _create_details_section(metadata: dict) -> str:
         if classifier_response:
             p_risk = classifier_response.get('p_risk', 0)
             p_safe = classifier_response.get('p_safe', 0)
-            lines.append(f'<div style="margin-top: 4px;"><span style="color: #888;">Response:</span> P(RISK)={p_risk:.3f}, P(SAFE)={p_safe:.3f}</div>')
+            lines.append(f'<div style="margin-top: 4px;"><span style="color: #888;">Response:</span> P(FAIL)={p_risk:.3f}, P(SAFE)={p_safe:.3f}</div>')
 
         lines.append('</div>')
 
@@ -373,7 +373,7 @@ def _render_color_chart(
     min_char = min(char_indices)
     char_range = max(max_char - min_char, 1)
 
-    # Plot P(RISK) with dots
+    # Plot P(FAIL) with dots
     for char_idx, p_risk in zip(char_indices, p_risks):
         x = _char_to_x(char_idx, min_char, char_range, width)
         y = _value_to_y(p_risk, height)
@@ -518,7 +518,7 @@ def _format_tooltip(char_info: dict, buffer_metadata: Optional[dict] = None) -> 
     p_risk = classifier_response.get('p_risk', 0.0)
     p_safe = classifier_response.get('p_safe', 0.0)
     lines.append("")
-    lines.append(f"Response: P(RISK)={p_risk:.3f}, P(SAFE)={p_safe:.3f}")
+    lines.append(f"Response: P(FAIL)={p_risk:.3f}, P(SAFE)={p_safe:.3f}")
     lines.append(f"EMA after this char: {char_info['ema']:.3f}")
 
     # Stage 2 Masker (if available)
