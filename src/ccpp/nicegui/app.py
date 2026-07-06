@@ -211,7 +211,9 @@ def create_app(state: PIIClientState) -> None:
             ]
 
             if space_positions:
-                conversation_snapshot = list(state.conversation)
+                # Only the recent turns are needed as context; capping keeps the
+                # MLX prompt bounded (and latency stable) as the chat grows.
+                conversation_snapshot = list(state.conversation)[-6:]
                 for space_pos in space_positions:
                     text_to_classify = current_text[: space_pos + 1]
                     state.pending_classifications.append(
@@ -299,7 +301,7 @@ def create_app(state: PIIClientState) -> None:
             # Final classification on unclassified text (outside lock for I/O)
             with state.lock:
                 needs_final = len(original_text) > state.last_classified_len
-                conv_snapshot = list(state.conversation)
+                conv_snapshot = list(state.conversation)[-6:]  # bound MLX context
 
             if needs_final:
                 with state.lock:
