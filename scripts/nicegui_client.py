@@ -94,6 +94,12 @@ def main():
         title="PII Masking Demo",
         reload=False,
         show=True,
+        # Default is 3s: if the event loop stalls briefly (a heavy render, an
+        # occasional slow inference), the client declares "connection lost" and
+        # reconnects — and the reconnect's page rebuild then starves the in-flight
+        # MLX worker, ballooning a 0.5s inference into 20s+. For a local
+        # single-user demo, be very patient instead of triggering that spiral.
+        reconnect_timeout=60.0,
     )
 
 
