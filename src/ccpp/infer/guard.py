@@ -5,12 +5,29 @@ to provide continuous PII monitoring with masking at stream breaks.
 """
 
 import time
+from dataclasses import dataclass, field
 from typing import Optional
 
-from ccpp.types import HoldbackBuffer, RiskState
 from ccpp.infer.heuristics import FastHeuristics
 from ccpp.infer.stage1_router import Stage1Router
 from ccpp.infer.stage2_redactor import Stage2Redactor
+from ccpp.types import HoldbackBuffer, RedactorOutput, RiskState
+
+
+@dataclass
+class EmitDecision:
+    """Result of evaluating the current buffer for emission, without applying it.
+
+    Lets a caller (e.g. the GUI review panel) inspect and approve the detected
+    spans before masks are applied, then call ``flush_emitted()`` to reset state.
+    """
+
+    text: str  # Raw (unmasked) buffer text
+    window: str  # Window including overlap tail that Stage 2 evaluated
+    should_mask: bool  # Whether the masking triggers fired
+    redactor_output: Optional[RedactorOutput] = None  # Spans if should_mask, else None
+    strong_heuristic: bool = False
+    events: list[dict] = field(default_factory=list)
 
 
 class ExchangePIIGuard:
@@ -67,7 +84,7 @@ class ExchangePIIGuard:
         self.last_token_time: Optional[float] = None
         self.any_risk_in_buffer = False  # Track if any high-risk token in current buffer
 
-    def ingest_chunk(self, text: str) -> tuple[str, list[dict]]:
+    def ingest_chunk(self, text: str, check_stream_break: bool = True) -> tuple[str, list[dict]]:
         """Ingest new text chunk from stream.
 
         This is the main entry point for streaming text. Call this repeatedly
@@ -75,6 +92,9 @@ class ExchangePIIGuard:
 
         Args:
             text: New text chunk (can be single char, word, or sentence)
+            check_stream_break: If True (default), a pause since the last chunk
+                triggers an emit before this chunk is appended. Callers that own
+                their own emit trigger (e.g. a GUI "Send" button) pass False.
 
         Returns:
             Tuple of (emit_text, events):
@@ -86,7 +106,7 @@ class ExchangePIIGuard:
         now = time.time()
 
         # Check for a stream break BEFORE appending the new token.
-        if self._check_stream_break(now) and len(self.buffer) > 0:
+        if check_stream_break and self._check_stream_break(now) and len(self.buffer) > 0:
             emit_text = self._emit_buffer(events, reason="stream_break")
 
         # 1. Append to buffer
@@ -132,6 +152,23 @@ class ExchangePIIGuard:
         elapsed = now - self.last_token_time
         return elapsed >= self.stream_break_timeout
 
+    def poll_stream_break(self) -> tuple[str, list[dict]]:
+        """Emit the buffer if the stream-break timeout has elapsed.
+
+        Call this on a timer so a *trailing* pause (no further chunks arriving)
+        still triggers emission. ``ingest_chunk`` only checks the break when the
+        next chunk arrives, so without this a final utterance would sit in the
+        buffer until ``force_emit``.
+
+        Returns:
+            Tuple of (emit_text, events); ("", []) if no break fired.
+        """
+        if len(self.buffer) > 0 and self._check_stream_break(time.time()):
+            events: list[dict] = []
+            emit_text = self._emit_buffer(events, reason="stream_break")
+            return (emit_text, events)
+        return ("", [])
+
     def force_emit(self) -> tuple[str, list[dict]]:
         """Force emission of current buffer (e.g., at end of conversation).
 
@@ -147,50 +184,52 @@ class ExchangePIIGuard:
         emit_text = self._emit_buffer(events, reason="force_emit")
         return (emit_text, events)
 
-    def _emit_buffer(self, events: list[dict], reason: str) -> str:
-        """Emit current buffer with masking decision and reset state."""
-        events.append({"type": reason})
+    def evaluate_buffer(self) -> EmitDecision:
+        """Decide whether the current buffer needs masking, and if so run Stage 2.
 
-        # Run heuristics on current buffer
+        Does NOT apply masks or flush — the caller inspects the returned spans
+        (e.g. a review panel), applies masks itself, then calls flush_emitted().
+        This is the same decision the auto-emit path (_emit_buffer) makes.
+
+        Returns:
+            EmitDecision with the masking verdict and extracted spans.
+        """
+        events: list[dict] = []
+
         matches = self.heuristics.detect(self.buffer.raw_text)
         strong_match = self.heuristics.has_strong_match(matches)
-
         if strong_match:
             events.append({
                 "type": "heuristic_match",
                 "matches": [m.pattern_name for m in matches],
             })
 
-        # Check current risk state
-        is_escalated = self.risk_state.is_escalated
-
-        # Masking decision
         should_mask = (
             self.any_risk_in_buffer
-            or is_escalated
+            or self.risk_state.is_escalated
             or strong_match
         )
 
+        window = self.buffer.get_window_with_overlap()
+        redactor_output = None
         if should_mask:
-            window = self.buffer.get_window_with_overlap()
             redactor_output = self.stage2.redact(self.messages, window)
-            masked = redactor_output.apply_masks(
-                self.buffer.raw_text,
-                mask_format="[{type}]"
-            )
-            events.append({
-                "type": "masked",
-                "num_entities": len(redactor_output.spans),
-                "entities": [
-                    {"text": s.entity_text, "category": s.category.value}
-                    for s in redactor_output.spans
-                ],
-            })
-        else:
-            masked = self.buffer.raw_text
-            events.append({"type": "passed"})
 
-        emit_text = masked
+        return EmitDecision(
+            text=self.buffer.raw_text,
+            window=window,
+            should_mask=should_mask,
+            redactor_output=redactor_output,
+            strong_heuristic=strong_match,
+            events=events,
+        )
+
+    def flush_emitted(self) -> None:
+        """Reset buffer + risk state after an emission has been applied.
+
+        Retains the overlap tail so PII split across the boundary is still
+        detectable on the next window.
+        """
         self.buffer.flush(keep_overlap=True)
         self.any_risk_in_buffer = False
 
@@ -204,7 +243,32 @@ class ExchangePIIGuard:
             self.risk_state.consecutive_high = 0
             self.risk_state.is_escalated = False
 
-        return emit_text
+    def _emit_buffer(self, events: list[dict], reason: str) -> str:
+        """Emit current buffer with masking decision and reset state (auto path)."""
+        events.append({"type": reason})
+
+        decision = self.evaluate_buffer()
+        events.extend(decision.events)
+
+        if decision.should_mask:
+            masked = decision.redactor_output.apply_masks(
+                self.buffer.raw_text,
+                mask_format="[{type}]"
+            )
+            events.append({
+                "type": "masked",
+                "num_entities": len(decision.redactor_output.spans),
+                "entities": [
+                    {"text": s.entity_text, "category": s.category.value}
+                    for s in decision.redactor_output.spans
+                ],
+            })
+        else:
+            masked = self.buffer.raw_text
+            events.append({"type": "passed"})
+
+        self.flush_emitted()
+        return masked
 
     def add_user_message(self, content: str):
         """Add user message to conversation history.
