@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from nicegui import run, ui
 
@@ -23,6 +25,17 @@ from ccpp.nicegui.styles import COLORS, FONT_STACK, GLOBAL_CSS
 from ccpp.types import ApprovedModel, BufferMetadata, CharClassification
 
 logger = get_logger(__name__)
+
+# All MLX inference runs on this ONE dedicated thread: off the event loop (so a
+# multi-second inference never freezes the UI or drops the WebSocket) and
+# serialized onto a single thread (so Metal is never touched concurrently).
+_MLX_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mlx")
+
+
+async def _run_mlx(fn, *args, **kwargs):
+    """Run a blocking MLX call on the dedicated worker thread, awaited."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_MLX_POOL, lambda: fn(*args, **kwargs))
 
 
 def process_pending_classifications(state: PIIClientState, session: dict) -> bool:
@@ -221,23 +234,21 @@ def create_app(state: PIIClientState) -> None:
                 is_classifying=state.is_classifying,
             )
 
-    def on_timer_tick() -> None:
-        """500ms timer — process one pending classification.
+    async def on_timer_tick() -> None:
+        """500ms timer — process one pending classification off the event loop.
 
-        MLX runs synchronously here (Metal crashes from a thread pool). Skip
-        entirely while a send is in flight: the timer's Stage 1 must not run MLX
-        concurrently with the send's Stage 2 — concurrent Metal access serializes
-        into multi-second stalls that freeze the UI and trip a reconnect.
+        The Stage 1 MLX call runs on the dedicated worker thread so the loop
+        stays responsive (no freeze / reconnect). Skip while a send is in flight
+        or a classification is already running, so work never overlaps.
         """
-        if state.is_processing:
+        with state.lock:
+            if state.is_processing or state.is_classifying:
+                return
+            pending_count = len(state.pending_classifications)
+        if pending_count == 0:
             return
 
-        with state.lock:
-            pending_count = len(state.pending_classifications)
-        if pending_count > 0:
-            logger.info(f"[timer] pending={pending_count}, about to process one")
-
-        processed = process_pending_classifications(state, _session)
+        processed = await _run_mlx(process_pending_classifications, state, _session)
 
         if processed:
             with state.lock:
@@ -295,11 +306,8 @@ def create_app(state: PIIClientState) -> None:
                     state.is_classifying = True
                 _components["status"].update(is_processing=True, is_classifying=True)
 
-                # MLX must run on the main thread — the Metal backend crashes when
-                # called from run.io_bound's worker pool (same reason the timer
-                # runs Stage 1 synchronously). The is_processing flag pauses the
-                # timer, so there is no concurrent MLX access here.
-                risk_score = state.stage1.classify(conv_snapshot, original_text)
+                # Run on the dedicated MLX worker thread (off the event loop).
+                risk_score = await _run_mlx(state.stage1.classify, conv_snapshot, original_text)
 
                 with state.lock:
                     state.is_classifying = False
@@ -332,8 +340,8 @@ def create_app(state: PIIClientState) -> None:
                 state.guard.messages = conv_snapshot
                 state.guard.buffer.raw_text = original_text
 
-            # Run Stage 2 on the main thread too (Metal crashes from the pool).
-            decision = state.guard.evaluate_buffer()
+            # Run Stage 2 on the dedicated MLX worker thread (off the event loop).
+            decision = await _run_mlx(state.guard.evaluate_buffer)
 
             should_mask = decision.should_mask
             strong_heuristic = decision.strong_heuristic
