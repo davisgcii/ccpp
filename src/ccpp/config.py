@@ -252,14 +252,7 @@ def get_stage1_config(config: Config) -> Dict[str, Any]:
         "max_tokens": config.stage1.max_tokens,
     }
 
-    # Add optional fields if present
-    if hasattr(config.stage1, "few_shot"):
-        result["few_shot"] = config.stage1.few_shot.to_dict() if isinstance(config.stage1.few_shot, Config) else config.stage1.few_shot
-
-    if hasattr(config.stage1, "system_prompt"):
-        result["system_prompt"] = config.stage1.system_prompt
-
-    # New: Add prompt_template if present
+    # Add prompt_template if present
     if hasattr(config.stage1, "prompt_template"):
         result["prompt_template"] = config.stage1.prompt_template
 
@@ -323,14 +316,7 @@ def get_stage2_config(config: Config) -> Dict[str, Any]:
         "max_tokens": config.stage2.max_tokens,
     }
 
-    # Add optional fields if present
-    if hasattr(config.stage2, "few_shot"):
-        result["few_shot"] = config.stage2.few_shot.to_dict() if isinstance(config.stage2.few_shot, Config) else config.stage2.few_shot
-
-    if hasattr(config.stage2, "system_prompt"):
-        result["system_prompt"] = config.stage2.system_prompt
-
-    # New: Add prompt_template if present
+    # Add prompt_template if present
     if hasattr(config.stage2, "prompt_template"):
         result["prompt_template"] = config.stage2.prompt_template
 

@@ -89,8 +89,7 @@ class TestStage2RedactorRealMode:
         """Test initialization in real mode."""
         assert redactor.mock_mode is False
         assert redactor.backend is mock_llm_backend
-        assert len(redactor.few_shot_examples) > 0
-        assert redactor.system_prompt != ""
+        assert redactor.prompt_template != ""
 
     def test_init_requires_backend(self, stage2_config):
         """Test that real mode requires backend or config."""
@@ -164,14 +163,24 @@ class TestStage2RedactorRealMode:
         assert len(output.spans) == 1
         assert output.spans[0].category == PIICategory.IDENTIFIER
 
-    def test_format_prompt_with_few_shot(self, redactor, sample_messages):
-        """Test prompt formatting with few-shot examples."""
-        messages = redactor._format_prompt_with_few_shot(sample_messages, "Window text")
+    def test_build_prompt_uses_template(self, redactor, sample_messages):
+        """Prompt is built from the template with context + window filled in."""
+        messages = redactor._build_prompt(sample_messages, "Window text")
 
-        assert len(messages) > 0
-        assert messages[0]["role"] == "system"
-        # Should include examples
-        assert any("MASK" in msg.get("content", "") for msg in messages)
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert "Window text" in messages[0]["content"]
+
+    def test_build_prompt_fallback_without_template(self, mock_llm_backend, stage2_config):
+        """Without a template, a single self-contained query is produced."""
+        cfg = {k: v for k, v in stage2_config.items() if k != "prompt_template"}
+        redactor = Stage2Redactor(
+            llm_backend=mock_llm_backend, llm_config=cfg, mock_mode=False
+        )
+        messages = redactor._build_prompt([], "some window")
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert "some window" in messages[0]["content"]
 
     def test_format_context(self, redactor, sample_messages):
         """Test context formatting."""

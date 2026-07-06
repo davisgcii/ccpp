@@ -41,9 +41,7 @@ class Stage1Router:
         self.mock_mode = mock_mode
         self.device = device
         self.backend = None
-        self.prompt_template = ""  # New: single template with {context} and {current_buffer}
-        self.few_shot_examples = []  # Legacy: kept for backwards compatibility
-        self.system_prompt = ""  # Legacy: kept for backwards compatibility
+        self.prompt_template = ""  # Single template with {context} and {current_buffer}
         self.logit_config = LogitExtractionConfig()
         self.calibration_enabled = False
         self.calibration_delta = None
@@ -70,19 +68,11 @@ class Stage1Router:
         """Load configuration from dict.
 
         Args:
-            config: Configuration dict with prompt_template (preferred) or
-                    legacy few_shot/system_prompt keys
+            config: Configuration dict with a prompt_template plus logit
+                    extraction / calibration / sequence-loglikelihood settings.
         """
-        # New: Load prompt template (preferred method)
+        # Load prompt template (the whole prompt)
         self.prompt_template = config.get("prompt_template", "")
-
-        # Legacy: Load few-shot examples (for backwards compatibility)
-        few_shot_cfg = config.get("few_shot", {})
-        if few_shot_cfg.get("enabled", False):
-            self.few_shot_examples = few_shot_cfg.get("examples", [])
-
-        # Legacy: Load system prompt
-        self.system_prompt = config.get("system_prompt", "")
 
         # Load logit extraction config
         logit_cfg = config.get("logit_extraction", {})
@@ -165,13 +155,13 @@ class Stage1Router:
         import logging
         logger = logging.getLogger(__name__)
 
-        # Format prompt with few-shot examples
-        prompt_messages = self._format_prompt_with_few_shot(messages, current_text)
+        # Build the classification prompt from the template
+        prompt_messages = self._build_prompt(messages, current_text)
 
         # Consolidated debug log for prompt construction
         logger.debug(
-            f"[Stage1] prompt: examples={len(self.few_shot_examples)} "
-            f"sys_len={len(self.system_prompt)} msgs={len(prompt_messages)}"
+            f"[Stage1] prompt: template={bool(self.prompt_template)} "
+            f"msgs={len(prompt_messages)}"
         )
 
         # Sequence log-likelihood mode: compute P(SAFE) vs P(FAIL) as full sequences
@@ -215,7 +205,7 @@ class Stage1Router:
 
         if self.calibration_enabled and hasattr(self.backend, "extract_logit_data"):
             if self.calibration_delta is None:
-                baseline_messages = self._format_prompt_with_few_shot(
+                baseline_messages = self._build_prompt(
                     self.calibration_context,
                     self.calibration_buffer,
                 )
@@ -248,16 +238,16 @@ class Stage1Router:
 
         return RiskScore(score=prob_risk)
 
-    def _format_prompt_with_few_shot(
+    def _build_prompt(
         self,
         messages: list[dict],
         current_text: str
     ) -> list[dict]:
-        """Format prompt for classification.
+        """Build the classification prompt as a list of chat messages.
 
-        Uses one of two modes:
-        1. Template mode (preferred): Uses prompt_template with {context} and {current_buffer}
-        2. Legacy mode: Constructs prompt from system_prompt + few_shot_examples
+        Uses the configured ``prompt_template`` (the production path). If no
+        template is set, falls back to a single self-contained query built from
+        the conversation context and current buffer.
 
         Args:
             messages: Conversation history
@@ -266,56 +256,20 @@ class Stage1Router:
         Returns:
             List of message dicts ready for LLM backend
         """
-        # Format context for either mode
-        actual_context = self._format_context(messages)
+        context = self._format_context(messages)
 
-        # New: Template mode (preferred)
         if self.prompt_template:
-            # Simple string substitution
             formatted_prompt = self.prompt_template.format(
-                context=actual_context,
+                context=context,
                 current_buffer=current_text,
             )
-            # Return as single user message (template includes everything)
             return [{"role": "user", "content": formatted_prompt}]
 
-        # Legacy: Construct from system_prompt + few_shot_examples
-        prompt = []
-
-        # Add system prompt
-        if self.system_prompt:
-            prompt.append({
-                "role": "system",
-                "content": self.system_prompt.strip(),
-            })
-
-        # Add few-shot examples
-        for example in self.few_shot_examples:
-            # Format example context
-            example_messages = example.get("messages", [])
-            example_context = self._format_context(example_messages)
-            example_buffer = example.get("current_buffer", "")
-            example_label = example.get("label", "SAFE")
-
-            # User message: context + current buffer
-            prompt.append({
-                "role": "user",
-                "content": self._format_classification_query(example_context, example_buffer),
-            })
-
-            # Assistant response: label
-            prompt.append({
-                "role": "assistant",
-                "content": example_label,
-            })
-
-        # Add actual query
-        prompt.append({
+        # Fallback: a single query without few-shot examples.
+        return [{
             "role": "user",
-            "content": self._format_classification_query(actual_context, current_text),
-        })
-
-        return prompt
+            "content": self._format_classification_query(context, current_text),
+        }]
 
     def _format_context(self, messages: list[dict]) -> str:
         """Format conversation context as a string.
