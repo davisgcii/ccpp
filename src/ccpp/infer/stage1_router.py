@@ -9,7 +9,7 @@ import random
 from typing import Optional
 
 from ccpp.types import RiskScore
-from ccpp.llm.base import LLMBackend, GenerationConfig, LogitExtractionConfig
+from ccpp.llm.base import LLMBackend, LogitExtractionConfig
 from ccpp.llm.factory import create_backend_from_config
 
 
@@ -145,7 +145,7 @@ class Stage1Router:
         # Clamp to [0, 1]
         score = max(0.0, min(1.0, score))
 
-        return RiskScore(score=score, top_category=None)
+        return RiskScore(score=score)
 
     def _real_classify(self, messages: list[dict], current_text: str) -> RiskScore:
         """Real classification using LLM backend.
@@ -177,11 +177,11 @@ class Stage1Router:
         # Sequence log-likelihood mode: compute P(SAFE) vs P(FAIL) as full sequences
         # This bypasses the <think> token bias issue in Qwen3
         if self.sequence_loglikelihood_enabled and hasattr(self.backend, "extract_sequence_probs"):
-            prob_safe, prob_risk = self.backend.extract_sequence_probs(
+            _, prob_risk = self.backend.extract_sequence_probs(
                 prompt_messages,
                 self.logit_config,
             )
-            return RiskScore(score=prob_risk, top_category=None)
+            return RiskScore(score=prob_risk)
 
         # Extract logit probabilities (and optional diagnostics)
         if self.diagnostic_prompt_mode in ("minimal", "both") and hasattr(self.backend, "extract_logit_data"):
@@ -200,11 +200,11 @@ class Stage1Router:
             )
             logger.info("[Stage1] Minimal prompt delta: %.3f", min_b - min_a)
             if self.diagnostic_prompt_mode == "minimal":
-                prob_safe, prob_risk = self.backend.extract_logit_probs(
+                _, prob_risk = self.backend.extract_logit_probs(
                     minimal_messages,
                     self.logit_config,
                 )
-                return RiskScore(score=prob_risk, top_category=None)
+                return RiskScore(score=prob_risk)
 
         if self.diagnostic_prompt_mode == "both" and hasattr(self.backend, "extract_logit_data"):
             _, _, full_a, full_b = self.backend.extract_logit_data(
@@ -235,19 +235,18 @@ class Stage1Router:
             )
             adjusted_delta = (logit_b - logit_a) - float(self.calibration_delta or 0.0)
             prob_risk = 1.0 / (1.0 + pow(2.718281828459045, -adjusted_delta))
-            prob_safe = 1.0 - prob_risk
             logger.info(
                 "[Stage1] Adjusted delta: %.3f (raw delta: %.3f)",
                 adjusted_delta,
                 logit_b - logit_a,
             )
         else:
-            prob_safe, prob_risk = self.backend.extract_logit_probs(
+            _, prob_risk = self.backend.extract_logit_probs(
                 prompt_messages,
                 self.logit_config,
             )
 
-        return RiskScore(score=prob_risk, top_category=None)
+        return RiskScore(score=prob_risk)
 
     def _format_prompt_with_few_shot(
         self,
