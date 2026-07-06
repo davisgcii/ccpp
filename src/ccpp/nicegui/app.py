@@ -316,9 +316,7 @@ def create_app(state: PIIClientState) -> None:
                 )
 
                 if stage2_result.spans:
-                    for span in stage2_result.spans:
-                        mask_str = f"[{span.category.value.upper()}]"
-                        masked_text = masked_text.replace(span.entity_text, mask_str)
+                    masked_text = state.masking.apply(original_text, stage2_result.spans)
 
                 logger.info(f"[STAGE2] entities={len(stage2_result.spans)} result={stage2_result}")
 
@@ -505,11 +503,8 @@ def create_app(state: PIIClientState) -> None:
         original_text = pending["original_text"]
         ema_risk = pending["ema_risk"]
 
-        # Re-apply masks with only approved spans
-        masked_text = original_text
-        for span in approved_spans:
-            mask_str = f"[{span.category.value.upper()}]"
-            masked_text = masked_text.replace(span.entity_text, mask_str)
+        # Re-apply masks with only approved spans (same path as the preview)
+        masked_text = state.masking.apply(original_text, approved_spans)
 
         was_masked = original_text != masked_text
         await _finalize_send(original_text, masked_text, was_masked, ema_risk, approved_spans)
@@ -606,7 +601,9 @@ def create_app(state: PIIClientState) -> None:
 
                     # ── Review Panel (hidden by default) ──
                     _components["review"] = ReviewPanel(
-                        on_send=on_review_send, on_edit=on_review_edit
+                        on_send=on_review_send,
+                        on_edit=on_review_edit,
+                        masking=state.masking,
                     )
 
                     # ── Input Area (pinned to bottom, never pushed down) ──
