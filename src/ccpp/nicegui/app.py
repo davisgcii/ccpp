@@ -222,12 +222,16 @@ def create_app(state: PIIClientState) -> None:
             )
 
     def on_timer_tick() -> None:
-        """500ms timer — process pending classifications only.
+        """500ms timer — process one pending classification.
 
-        MLX calls run synchronously here (not via run.io_bound) because
-        Apple Silicon's Metal backend crashes when called from a thread pool.
-        Each classification takes ~400ms which is acceptable for demo use.
+        MLX runs synchronously here (Metal crashes from a thread pool). Skip
+        entirely while a send is in flight: the timer's Stage 1 must not run MLX
+        concurrently with the send's Stage 2 — concurrent Metal access serializes
+        into multi-second stalls that freeze the UI and trip a reconnect.
         """
+        if state.is_processing:
+            return
+
         with state.lock:
             pending_count = len(state.pending_classifications)
         if pending_count > 0:
@@ -236,21 +240,23 @@ def create_app(state: PIIClientState) -> None:
         processed = process_pending_classifications(state, _session)
 
         if processed:
-            logger.info(f"[timer] classification processed, updating chart")
             with state.lock:
                 combined = state.archived_risk_history + state.risk_history
                 buf = state.buffer
-            _components["chart"].update(combined, t_high=state.t_high, t_low=state.t_low, risk_threshold=state.guard.risk_threshold_immediate)
-            refresh_stats()
-            _components["highlight"].render_all(
-                _session["utterances"],
-                buf,
-                state.risk_history,
-            )
-            _components["status"].update(
-                is_processing=state.is_processing,
-                is_classifying=state.is_classifying,
-            )
+            try:
+                _components["chart"].update(combined, t_high=state.t_high, t_low=state.t_low, risk_threshold=state.guard.risk_threshold_immediate)
+                refresh_stats()
+                _components["highlight"].render_all(
+                    _session["utterances"], buf, state.risk_history,
+                )
+                _components["status"].update(
+                    is_processing=state.is_processing,
+                    is_classifying=state.is_classifying,
+                )
+            except RuntimeError:
+                # Elements may have been deleted by a NiceGUI reconnect; the next
+                # page load restores them from state. Don't crash the timer.
+                pass
 
     async def on_send_click() -> None:
         """User clicked Send — classify remainder, mask, review, then send to LLM.
@@ -499,15 +505,18 @@ def create_app(state: PIIClientState) -> None:
                 "content": "[LLM unavailable — no API key]",
             })
 
-        # Re-render conversation with assistant response
-        _components["conversation"].render(state.conversation)
-
+        # Clear the processing flag FIRST so it can never get stuck if a UI
+        # update below fails (e.g. a reconnect deleted the elements mid-send).
         with state.lock:
             state.is_processing = False
 
-        _components["status"].update(
-            chars_processed=len(original_text), was_masked=was_masked
-        )
+        try:
+            _components["conversation"].render(state.conversation)
+            _components["status"].update(
+                chars_processed=len(original_text), was_masked=was_masked
+            )
+        except RuntimeError:
+            pass  # elements deleted by a reconnect; next page load restores them
 
     async def on_review_send(approved_spans: list) -> None:
         """Called by ReviewPanel when user clicks Send."""
