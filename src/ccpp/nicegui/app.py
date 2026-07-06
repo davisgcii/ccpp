@@ -14,7 +14,7 @@ from ccpp.nicegui.components import (
     ConversationPanel,
     ReviewPanel,
     RiskChart,
-    SessionSparkline,
+    StatRow,
     StatusIndicator,
     TextHighlightOverlay,
 )
@@ -125,6 +125,19 @@ def create_app(state: PIIClientState) -> None:
     # Also track past utterances for the left-panel highlight display.
     _session: dict = {"word_offset": 0, "utterances": []}
 
+    def refresh_stats() -> None:
+        """Update the summary tiles from current state (RLock is reentrant)."""
+        if "stats" not in _components:
+            return
+        with state.lock:
+            p_risk = state.risk_history[-1]["p_risk"] if state.risk_history else 0.0
+            ema = state.guard.risk_state.ema_risk
+            masked = sum(
+                1 for m in state.conversation
+                if m.get("role") == "user" and (m.get("metadata") or {}).get("was_masked")
+            )
+        _components["stats"].update(p_risk, ema, state.t_high, masked)
+
     # ── Event handlers ────────────────────────────────────────────────
 
     def on_user_type(e) -> None:
@@ -228,6 +241,7 @@ def create_app(state: PIIClientState) -> None:
                 combined = state.archived_risk_history + state.risk_history
                 buf = state.buffer
             _components["chart"].update(combined, t_high=state.t_high, t_low=state.t_low, risk_threshold=state.guard.risk_threshold_immediate)
+            refresh_stats()
             _components["highlight"].render_all(
                 _session["utterances"],
                 buf,
@@ -416,12 +430,6 @@ def create_app(state: PIIClientState) -> None:
             "was_masked": was_masked,
         })
 
-        # Update sparkline
-        peak_risk = max(
-            (r["p_risk"] for r in buffer_metadata.risk_history), default=0
-        )
-        _components["sparkline"].add_point(peak_risk, ema_risk)
-
         # Render conversation so far (user message visible)
         _components["conversation"].render(state.conversation)
         _components["input"].value = ""
@@ -553,7 +561,7 @@ def create_app(state: PIIClientState) -> None:
         _components["conversation"].render([])
         _components["chart"].clear()
         _components["highlight"].clear()
-        _components["sparkline"].clear()
+        _components["stats"].update(0.0, 0.0, state.t_high, 0)
         _components["review"].hide()
         _components["status"].update()
 
@@ -583,49 +591,61 @@ def create_app(state: PIIClientState) -> None:
         });
         </script>""")
 
-        with ui.column().classes("w-full px-6 py-4 gap-4").style(
+        with ui.column().classes("w-full gap-5").style(
+            "max-width: 1240px; margin: 0 auto; padding: 22px 26px 32px; "
             "height: 100vh; max-height: 100vh;"
         ):
-            # ── Header ──
+            # ── Top bar ──
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label("PII Masking").classes("apple-heading")
-                _components["sparkline"] = SessionSparkline()
-                ui.button("Clear", on_click=on_clear).classes("apple-btn-secondary")
+                with ui.row().classes("items-center gap-3"):
+                    ui.html('<div class="brand-glyph"></div>')
+                    ui.html('<div><div class="brand-title">PII Masking</div>'
+                            '<div class="brand-sub">streaming redaction · two-stage cascade</div></div>')
+                with ui.row().classes("items-center gap-3"):
+                    ui.html('<span class="live-pill"><span class="dot"></span>Monitoring</span>')
+                    ui.button("Clear", on_click=on_clear).classes("apple-btn-secondary")
 
-            ui.element("hr").classes("apple-separator").style("width: 100%;")
-
-            # ── Two-column layout: chart left, conversation right ──
-            with ui.row().classes("w-full gap-6").style(
-                "flex: 1 1 0; min-height: 0;"
-            ):
-                # ── LEFT: Risk Analysis (50%) ──
-                with ui.column().classes("gap-3").style(
-                    "flex: 1 1 0; min-width: 0;"
+            # ── Two-column layout: signal instrument left, conversation right ──
+            with ui.row().classes("w-full gap-5").style("flex: 1 1 0; min-height: 0;"):
+                # ── LEFT: risk signal panel ──
+                with ui.column().classes("panel").style(
+                    "flex: 1 1 0; min-width: 0; padding: 16px 18px; gap: 14px;"
                 ):
-                    ui.label("Risk Analysis").classes("apple-section-label")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.html('<span class="eyebrow">Risk signal</span>')
+                        _components["status"] = StatusIndicator()
+                    _components["stats"] = StatRow()
                     _components["chart"] = RiskChart()
+                    ui.html('<div class="legend">'
+                            '<span><i class="dot" style="background:var(--accent);opacity:.55"></i>P(risk)</span>'
+                            '<span><i style="border-color:var(--accent)"></i>EMA</span>'
+                            '<span><i class="dash" style="border-color:var(--warn)"></i>escalate</span>'
+                            '<span><i class="dash" style="border-color:var(--danger)"></i>immediate</span></div>')
+                    with ui.column().classes("w-full gap-2").style(
+                        "border-top: 1px solid var(--line); padding-top: 12px;"
+                    ):
+                        ui.html('<div class="meter-lbl">Live token risk — current buffer</div>')
+                        _components["highlight"] = TextHighlightOverlay()
 
-                    _components["highlight"] = TextHighlightOverlay()
-
-                    _components["status"] = StatusIndicator()
-
-                # ── RIGHT: Conversation + Input (50%) ──
-                with ui.column().classes("gap-3").style(
-                    "flex: 1 1 0; min-width: 0; height: 90%;"
+                # ── RIGHT: conversation panel ──
+                with ui.column().classes("panel").style(
+                    "flex: 1 1 0; min-width: 0; height: 100%; padding: 0;"
                 ):
                     # Conversation scrolls to fill space
                     _components["conversation"] = ConversationPanel()
 
                     # ── Review Panel (hidden by default) ──
-                    _components["review"] = ReviewPanel(
-                        on_send=on_review_send,
-                        on_edit=on_review_edit,
-                        masking=state.masking,
-                    )
+                    with ui.column().classes("w-full").style("padding: 0 18px;"):
+                        _components["review"] = ReviewPanel(
+                            on_send=on_review_send,
+                            on_edit=on_review_edit,
+                            masking=state.masking,
+                        )
 
                     # ── Input Area (pinned to bottom, never pushed down) ──
                     with ui.column().classes("w-full gap-2").style(
-                        "flex-shrink: 0; margin-top: auto;"
+                        "flex-shrink: 0; margin-top: auto; padding: 14px 18px 18px; "
+                        "border-top: 1px solid var(--line);"
                     ):
                         with ui.row().classes("w-full items-center gap-2"):
                             _components["input"] = ui.textarea(

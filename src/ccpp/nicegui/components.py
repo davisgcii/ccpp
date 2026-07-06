@@ -1,22 +1,67 @@
-"""UI components for NiceGUI PII masking client (Apple Design)."""
+"""UI components for the NiceGUI PII masking client (instrument-panel design)."""
 
 from __future__ import annotations
 
 import html as html_lib
+import re
 from typing import Callable, Optional
 
 from nicegui import ui
 
 from ccpp.types import MaskingConfig
-from ccpp.nicegui.styles import COLORS, FONT_STACK
+from ccpp.nicegui.styles import COLORS, FONT_MONO
+
+# Matches masked placeholders like [CONTACT] / [GOV_ID] so they can be rendered
+# as redaction chips inside a bubble.
+_MASK_TOKEN = re.compile(r"\[([A-Z][A-Z_]*)\]")
+
+
+def _redacted_html(text: str) -> str:
+    """Escape text and render [CATEGORY] placeholders as redaction chips."""
+    out: list[str] = []
+    pos = 0
+    for m in _MASK_TOKEN.finditer(text):
+        out.append(html_lib.escape(text[pos:m.start()]))
+        out.append(f'<span class="redact">{html_lib.escape(m.group(1))}</span>')
+        pos = m.end()
+    out.append(html_lib.escape(text[pos:]))
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
-# ConversationPanel — iMessage-style scrollable chat history
+# StatRow — summary tiles above the chart (current P(risk), EMA, masked count)
+# ---------------------------------------------------------------------------
+
+class StatRow:
+    """Three summary tiles that surface the current state at a glance."""
+
+    def __init__(self) -> None:
+        self.el = ui.html(self._html(0.0, 0.0, 0.4, 0)).classes("w-full")
+
+    def update(self, p_risk: float, ema: float, t_high: float, masked: int) -> None:
+        self.el.content = self._html(p_risk, ema, t_high, masked)
+
+    @staticmethod
+    def _html(p_risk: float, ema: float, t_high: float, masked: int) -> str:
+        risk_cls = "danger" if p_risk >= 0.7 else ("warn" if p_risk >= 0.4 else "")
+        ema_cls = "warn" if ema >= t_high else ""
+        return f"""
+        <div class="stats">
+          <div class="stat"><div class="k">Current P(risk)</div>
+            <div class="v {risk_cls}">{p_risk:.2f}</div></div>
+          <div class="stat"><div class="k">EMA</div>
+            <div class="v {ema_cls}">{ema:.2f}<small> / {t_high:.2f} T</small></div></div>
+          <div class="stat"><div class="k">Masked</div>
+            <div class="v accent">{masked}<small> {'entity' if masked == 1 else 'entities'}</small></div></div>
+        </div>"""
+
+
+# ---------------------------------------------------------------------------
+# ConversationPanel — chat history with redaction chips
 # ---------------------------------------------------------------------------
 
 class ConversationPanel:
-    """Scrollable conversation history with iMessage-style bubbles."""
+    """Scrollable conversation history."""
 
     def __init__(self) -> None:
         self.scroll = ui.scroll_area().classes("w-full").style(
@@ -24,233 +69,133 @@ class ConversationPanel:
         )
         with self.scroll:
             self.container = ui.column().classes("w-full gap-3 p-2")
-        self._placeholder = None
         with self.container:
-            self._placeholder = ui.label("Conversation history will appear here...").style(
-                f"color: {COLORS['text_tertiary']}; font-size: 14px; padding: 24px 0;"
-            )
+            self._placeholder()
+
+    def _placeholder(self) -> None:
+        ui.label("Conversation will appear here.").style(
+            f"color: {COLORS['ink_3']}; font-size: 14px; padding: 24px 4px; "
+            f"font-family: {FONT_MONO};"
+        )
 
     def render(self, conversation: list[dict]) -> None:
-        """Rebuild the conversation from scratch."""
         self.container.clear()
-
         if not conversation:
             with self.container:
-                ui.label("Conversation history will appear here...").style(
-                    f"color: {COLORS['text_tertiary']}; font-size: 14px; padding: 24px 0;"
-                )
+                self._placeholder()
             return
 
         for i, msg in enumerate(conversation):
             is_last = i == len(conversation) - 1
-            role = msg["role"]
-            content = msg["content"]
-            metadata = msg.get("metadata")
-
             with self.container:
-                if role == "user":
-                    self._render_user_bubble(content, metadata, is_last)
+                if msg["role"] == "user":
+                    self._render_user_bubble(msg["content"], msg.get("metadata"), is_last)
                 else:
-                    self._render_assistant_bubble(content, is_last)
-
-        # Auto-scroll to bottom
+                    self._render_assistant_bubble(msg["content"], is_last)
         self.scroll.scroll_to(percent=1.0)
 
     def append_assistant_bubble(self) -> ui.markdown:
-        """Add an empty assistant bubble for streaming and return the markdown element."""
         with self.container:
             md = self._render_assistant_bubble("", is_last=True)
         self.scroll.scroll_to(percent=1.0)
         return md
 
-    def _render_user_bubble(
-        self, content: str, metadata: Optional[dict], is_last: bool
-    ) -> None:
-        classes = "w-full flex justify-end"
-        if is_last:
-            classes += " fade-in"
-
-        with ui.row().classes(classes):
-            with ui.column().classes("items-end gap-1").style("max-width: 75%;"):
-                # Bubble
-                with ui.element("div").style(
-                    f"background: {COLORS['bubble_user']}; "
-                    f"color: {COLORS['bubble_user_text']}; "
-                    "border-radius: 18px 18px 4px 18px; "
-                    "padding: 10px 16px; "
-                    "font-size: 15px; line-height: 1.45; "
-                    "word-break: break-word;"
-                ):
-                    was_masked = metadata and metadata.get("was_masked", False)
-                    original_text = metadata.get("original_text", content) if metadata else content
-
-                    if was_masked:
-                        # Show masked text by default, toggle to original
-                        text_label = ui.label(content).style("white-space: pre-wrap;")
-                        showing_masked = {"value": True}
-
-                        def toggle_text(tl=text_label, ot=original_text, mc=content, sm=showing_masked):
-                            sm["value"] = not sm["value"]
-                            tl.text = mc if sm["value"] else ot
-
-                        with ui.row().classes("items-center gap-1 mt-1").style("opacity: 0.7;"):
-                            ui.icon("edit", size="12px").style("color: rgba(255,255,255,0.7);")
-                            ui.label("Modified").style(
-                                "font-size: 11px; color: rgba(255,255,255,0.7); "
-                                "cursor: pointer;"
-                            ).on("click", toggle_text)
-                    else:
-                        ui.label(content).style("white-space: pre-wrap;")
-
-                # Expandable details
-                if metadata and metadata.get("risk_history"):
-                    self._render_details(metadata)
+    def _render_user_bubble(self, content: str, metadata: Optional[dict], is_last: bool) -> None:
+        wrap = "msg user" + (" fade-in" if is_last else "")
+        was_masked = bool(metadata and metadata.get("was_masked", False))
+        with ui.column().classes(wrap).style("align-self: flex-end; align-items: flex-end;"):
+            ui.html(f'<div class="bubble">{_redacted_html(content)}</div>')
+            if metadata and metadata.get("risk_history"):
+                risk_history = metadata["risk_history"]
+                peak = max((r["p_risk"] for r in risk_history), default=0)
+                ema = risk_history[-1]["ema"] if risk_history else 0
+                tag = ('<span class="tag masked">masked</span>' if was_masked
+                       else '<span class="tag safe">clear</span>')
+                ui.html(
+                    f'<div class="msg-meta">{tag}peak {peak:.2f} · ema {ema:.2f}</div>'
+                )
 
     def _render_assistant_bubble(self, content: str, is_last: bool) -> ui.markdown:
-        classes = "w-full flex justify-start"
-        if is_last:
-            classes += " fade-in"
-
+        wrap = "msg bot" + (" fade-in" if is_last else "")
         md = None
-        with ui.row().classes(classes):
-            with ui.element("div").style(
-                f"background: {COLORS['bubble_assistant']}; "
-                f"color: {COLORS['bubble_assistant_text']}; "
-                "border-radius: 18px 18px 18px 4px; "
-                "padding: 10px 16px; max-width: 75%; "
-                "font-size: 15px; line-height: 1.45; "
-                "word-break: break-word;"
-            ):
+        with ui.element("div").classes(wrap):
+            with ui.element("div").classes("bubble"):
                 md = ui.markdown(content).classes("assistant-md")
         return md
 
-    def _render_details(self, metadata: dict) -> None:
-        risk_history = metadata.get("risk_history", [])
-        was_masked = metadata.get("was_masked", False)
-        peak_risk = max((r["p_risk"] for r in risk_history), default=0)
-        final_ema = risk_history[-1]["ema"] if risk_history else 0
-
-        status_color = COLORS["risk_danger"] if was_masked else COLORS["risk_safe"]
-        status_text = "Masked" if was_masked else "Safe"
-
-        with ui.expansion(f"{status_text} — Peak {peak_risk:.2f} · EMA {final_ema:.2f}").classes(
-            "w-full"
-        ).style("max-width: 75%;"):
-            with ui.column().classes("gap-1").style("font-size: 12px;"):
-                with ui.row().classes("gap-4"):
-                    ui.label(f"Status: {status_text}").style(f"color: {status_color};")
-                    ui.label(f"Peak risk: {peak_risk:.3f}").style(
-                        f"color: {COLORS['text_secondary']};"
-                    )
-                    ui.label(f"EMA: {final_ema:.3f}").style(
-                        f"color: {COLORS['text_secondary']};"
-                    )
-
-                if was_masked:
-                    original = metadata.get("original_text", "")
-                    masked = metadata.get("masked_text", "")
-                    with ui.column().classes("gap-1 mt-2"):
-                        ui.label("Original:").style(
-                            f"color: {COLORS['text_secondary']}; font-weight: 600;"
-                        )
-                        ui.label(original).style(
-                            f"color: {COLORS['text_secondary']}; "
-                            "white-space: pre-wrap; font-size: 12px;"
-                        )
-                        ui.label("Masked:").style(
-                            f"color: {COLORS['text_secondary']}; font-weight: 600;"
-                        )
-                        ui.label(masked).style(
-                            "white-space: pre-wrap; font-size: 12px;"
-                        )
-
 
 # ---------------------------------------------------------------------------
-# RiskChart — ECharts line chart for P(RISK) scatter + EMA line
+# RiskChart — ECharts EMA trace + P(risk) scatter + threshold references
 # ---------------------------------------------------------------------------
 
 class RiskChart:
-    """Real-time risk visualization using Apache ECharts."""
+    """Real-time risk instrument using Apache ECharts."""
 
     def __init__(self) -> None:
         self.chart = ui.echart(self._empty_options()).classes("w-full").style(
-            f"height: 340px; border: 1px solid {COLORS['border']}; border-radius: 12px; "
-            f"background: {COLORS['bg_primary']};"
+            "height: 260px; background: transparent;"
         )
 
-    def update(self, risk_history: list[dict], t_high: float = 0.4, t_low: float = 0.2, risk_threshold: float = 0.7) -> None:
+    def update(self, risk_history: list[dict], t_high: float = 0.4,
+               t_low: float = 0.2, risk_threshold: float = 0.7) -> None:
         if not risk_history:
             self.clear()
             return
 
-        # Each data point: [char_idx, score, buffer_text]
-        # The buffer field contains the text that was classified at that point.
-        risk_data = [
-            [r["char_idx"], r["p_risk"], r.get("buffer", "")]
-            for r in risk_history
-        ]
-        ema_data = [
-            [r["char_idx"], r["ema"], r.get("buffer", "")]
-            for r in risk_history
-        ]
-        current_ema = risk_history[-1]["ema"]
-        ema_color = COLORS["chart_ema_high"] if current_ema >= t_high else COLORS["chart_ema_safe"]
+        risk_data = [[r["char_idx"], r["p_risk"], r.get("buffer", "")] for r in risk_history]
+        ema_data = [[r["char_idx"], r["ema"], r.get("buffer", "")] for r in risk_history]
+        last = ema_data[-1]
+        accent = COLORS["accent"]
 
         self.chart.options["series"] = [
-            # P(RISK) scatter
             {
-                "name": "P(Risk)",
+                "name": "P(risk)",
                 "type": "scatter",
                 "data": risk_data,
-                "symbolSize": 7,
-                "itemStyle": {"color": COLORS["chart_risk_dot"], "opacity": 0.6},
+                "symbolSize": 8,
+                "itemStyle": {"color": accent, "opacity": 0.55},
                 "z": 2,
             },
-            # EMA line
             {
                 "name": "EMA",
                 "type": "line",
                 "data": ema_data,
                 "smooth": True,
                 "showSymbol": False,
-                "lineStyle": {"width": 2.5, "color": ema_color},
-                "areaStyle": {"color": ema_color, "opacity": 0.06},
+                "lineStyle": {"width": 2.5, "color": accent},
+                "areaStyle": {"color": {
+                    "type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1,
+                    "colorStops": [
+                        {"offset": 0, "color": "rgba(47,107,255,0.22)"},
+                        {"offset": 1, "color": "rgba(47,107,255,0.0)"},
+                    ],
+                }},
                 "z": 3,
+                # Emphasized live endpoint.
+                "markPoint": {
+                    "symbol": "circle", "symbolSize": 11, "silent": True,
+                    "data": [{"coord": [last[0], last[1]]}],
+                    "itemStyle": {"color": accent, "borderColor": COLORS["surface"], "borderWidth": 2},
+                    "label": {"show": False},
+                },
                 "markLine": {
-                    "silent": True,
-                    "symbol": "none",
+                    "silent": True, "symbol": "none",
                     "lineStyle": {"type": "dashed", "width": 1},
-                    "label": {"fontSize": 10, "fontFamily": FONT_STACK},
+                    "label": {"fontSize": 10, "fontFamily": FONT_MONO, "fontWeight": "bold"},
                     "data": [
-                        {
-                            "yAxis": t_high,
-                            "label": {
-                                "formatter": "T_high",
-                                "color": COLORS["chart_threshold_high"],
-                            },
-                            "lineStyle": {"color": COLORS["chart_threshold_high"]},
-                        },
-                        {
-                            "yAxis": t_low,
-                            "label": {
-                                "formatter": "T_low",
-                                "color": COLORS["chart_threshold_low"],
-                            },
-                            "lineStyle": {"color": COLORS["chart_threshold_low"]},
-                        },
-                        {
-                            "yAxis": risk_threshold,
-                            "label": {
-                                "formatter": "Risk",
-                                "color": COLORS["risk_danger"],
-                            },
-                            "lineStyle": {"color": COLORS["risk_danger"], "type": "dashed", "width": 1},
-                        },
+                        {"yAxis": risk_threshold,
+                         "label": {"formatter": f"RISK · {risk_threshold:.2f}", "color": COLORS["danger"]},
+                         "lineStyle": {"color": COLORS["danger"]}},
+                        {"yAxis": t_high,
+                         "label": {"formatter": f"T_high · {t_high:.2f}", "color": COLORS["warn"]},
+                         "lineStyle": {"color": COLORS["warn"]}},
+                        {"yAxis": t_low,
+                         "label": {"formatter": f"T_low · {t_low:.2f}", "color": COLORS["ink_3"]},
+                         "lineStyle": {"color": COLORS["ink_3"]}},
                     ],
                 },
             },
         ]
-
         self.chart.update()
 
     def clear(self) -> None:
@@ -260,146 +205,49 @@ class RiskChart:
 
     @staticmethod
     def _empty_options() -> dict:
+        axis_label = {"color": COLORS["ink_3"], "fontFamily": FONT_MONO, "fontSize": 10}
+        axis_name = {"color": COLORS["ink_3"], "fontFamily": FONT_MONO, "fontSize": 10}
         return {
             "animation": True,
             "animationDuration": 300,
             "animationEasing": "cubicOut",
-            "grid": {
-                "top": 36,
-                "right": 24,
-                "bottom": 36,
-                "left": 48,
-                "containLabel": False,
-            },
+            "grid": {"top": 30, "right": 18, "bottom": 30, "left": 40, "containLabel": False},
             "xAxis": {
-                "type": "value",
-                "name": "Word",
-                "nameTextStyle": {
-                    "color": COLORS["text_secondary"],
-                    "fontFamily": FONT_STACK,
-                    "fontSize": 11,
-                },
-                "axisLine": {"lineStyle": {"color": COLORS["border"]}},
-                "axisLabel": {"color": COLORS["text_secondary"], "fontSize": 10},
+                "type": "value", "name": "word", "nameLocation": "end",
+                "nameTextStyle": axis_name,
+                "axisLine": {"show": False},
+                "axisTick": {"show": False},
+                "axisLabel": axis_label,
                 "splitLine": {"show": False},
                 "minInterval": 1,
             },
             "yAxis": {
-                "type": "value",
-                "min": 0,
-                "max": 1,
-                "name": "Score",
-                "nameTextStyle": {
-                    "color": COLORS["text_secondary"],
-                    "fontFamily": FONT_STACK,
-                    "fontSize": 11,
-                },
-                "axisLine": {"lineStyle": {"color": COLORS["border"]}},
-                "axisLabel": {"color": COLORS["text_secondary"], "fontSize": 10},
-                "splitLine": {
-                    "lineStyle": {"color": COLORS["chart_grid"], "type": "dashed"}
-                },
+                "type": "value", "min": 0, "max": 1,
+                "axisLine": {"show": False},
+                "axisTick": {"show": False},
+                "axisLabel": axis_label,
+                "splitLine": {"lineStyle": {"color": COLORS["line"], "type": "solid"}},
             },
             "tooltip": {
                 "trigger": "item",
-                "backgroundColor": "rgba(255,255,255,0.96)",
-                "borderColor": COLORS["border"],
+                "backgroundColor": COLORS["surface"],
+                "borderColor": COLORS["line"],
                 "borderWidth": 1,
-                "textStyle": {
-                    "color": COLORS["text_primary"],
-                    "fontFamily": FONT_STACK,
-                    "fontSize": 12,
-                },
-                "extraCssText": (
-                    "border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); "
-                    "max-width: 400px; white-space: pre-wrap;"
-                ),
-                # :formatter is evaluated as JS by NiceGUI's convertDynamicProperties
+                "textStyle": {"color": COLORS["ink"], "fontFamily": FONT_MONO, "fontSize": 12},
+                "extraCssText": "border-radius: 10px; box-shadow: 0 6px 20px rgba(20,23,31,0.12); max-width: 360px; white-space: pre-wrap;",
                 ":formatter": """(params) => {
                     const d = params.data || [];
                     const score = (d[1] !== undefined) ? d[1].toFixed(3) : '—';
                     const buf = d[2] || '';
-                    const name = params.seriesName || '';
-                    let label = '<b>' + name + ':</b> ' + score;
+                    let label = '<b>' + (params.seriesName || '') + '</b> ' + score;
                     if (buf) {
-                        const truncated = buf.length > 120 ? '…' + buf.slice(-120) : buf;
-                        label += '<br/><span style="color:#86868B;font-size:11px">Buffer: '
-                            + truncated.replace(/</g, '&lt;') + '</span>';
+                        const t = buf.length > 100 ? '…' + buf.slice(-100) : buf;
+                        label += '<br/><span style="color:#8A909C;font-size:11px">' + t.replace(/</g, '&lt;') + '</span>';
                     }
                     return label;
                 }""",
             },
-            "legend": {
-                "show": True,
-                "top": 4,
-                "right": 16,
-                "textStyle": {
-                    "color": COLORS["text_secondary"],
-                    "fontFamily": FONT_STACK,
-                    "fontSize": 11,
-                },
-                "itemWidth": 12,
-                "itemHeight": 8,
-            },
-            "series": [],
-        }
-
-
-# ---------------------------------------------------------------------------
-# SessionSparkline — tiny trend line in the header
-# ---------------------------------------------------------------------------
-
-class SessionSparkline:
-    """Apple Health-style mini sparkline showing session risk trend."""
-
-    def __init__(self) -> None:
-        self._data: list[list[float]] = []  # [[index, ema], ...]
-        self.chart = ui.echart(self._options()).style(
-            "height: 36px; width: 140px;"
-        )
-
-    def add_point(self, peak_risk: float, ema: float) -> None:
-        idx = len(self._data)
-        self._data.append([idx, ema])
-        color = COLORS["chart_ema_high"] if ema >= 0.4 else COLORS["chart_ema_safe"]
-
-        self.chart.options["series"] = [
-            {
-                "type": "line",
-                "data": self._data,
-                "smooth": True,
-                "showSymbol": False,
-                "lineStyle": {"width": 2, "color": color},
-                "areaStyle": {"color": color, "opacity": 0.08},
-            }
-        ]
-        self.chart.options["xAxis"]["max"] = max(idx + 2, 5)
-        self.chart.update()
-
-    def clear(self) -> None:
-        self._data = []
-        self.chart.options.clear()
-        self.chart.options.update(self._options())
-        self.chart.update()
-
-    def _options(self) -> dict:
-        return {
-            "animation": True,
-            "animationDuration": 300,
-            "grid": {"top": 4, "right": 4, "bottom": 4, "left": 4},
-            "xAxis": {
-                "type": "value",
-                "show": False,
-                "min": 0,
-                "max": 5,
-            },
-            "yAxis": {
-                "type": "value",
-                "show": False,
-                "min": 0,
-                "max": 1,
-            },
-            "tooltip": {"show": False},
+            "legend": {"show": False},
             "series": [],
         }
 
@@ -409,99 +257,69 @@ class SessionSparkline:
 # ---------------------------------------------------------------------------
 
 class ReviewPanel:
-    """Compact review panel for detected entities before sending to LLM."""
+    """Review panel for detected entities before sending to the LLM."""
 
-    def __init__(
-        self,
-        on_send: Callable,
-        on_edit: Callable,
-        masking: Optional[MaskingConfig] = None,
-    ) -> None:
+    def __init__(self, on_send: Callable, on_edit: Callable,
+                 masking: Optional[MaskingConfig] = None) -> None:
         self._on_send = on_send
         self._on_edit = on_edit
-        # Same masking settings as the send path, so the preview matches exactly
-        # what will be emitted on approval.
         self._masking = masking or MaskingConfig()
         self._entity_states: dict[int, bool] = {}
         self._original_text = ""
         self._spans: list = []
-        self._masked_preview_label: Optional[ui.label] = None
+        self._preview: Optional[ui.html] = None
 
-        self.panel = ui.column().classes("w-full").style(
-            f"border: 1px solid {COLORS['border']}; border-radius: 10px; "
-            f"background: {COLORS['bg_secondary']}; padding: 12px 16px; gap: 8px;"
-        )
+        self.panel = ui.column().classes("review w-full").style("gap: 10px;")
         self.panel.visible = False
 
     def show(self, original_text: str, masked_text: str, spans: list) -> None:
         self._original_text = original_text
         self._spans = spans
         self._entity_states = {i: True for i in range(len(spans))}
-
         self.panel.clear()
         self.panel.visible = True
 
         with self.panel:
-            # Entity pills + buttons in a compact row
-            with ui.row().classes("w-full items-center gap-2 flex-wrap"):
-                ui.label("Detected:").style(
-                    f"font-size: 12px; font-weight: 600; color: {COLORS['text_secondary']};"
-                )
-                for i, span in enumerate(spans):
-                    self._render_entity_pill(i, span)
-
-                # Spacer
-                ui.element("div").style("flex: 1;")
-
+            ui.html('<div class="rhd">Detected · review before sending</div>')
+            for i, span in enumerate(spans):
+                self._render_entity(i, span)
+            self._preview = ui.html(self._preview_html(masked_text))
+            with ui.row().classes("w-full justify-end gap-2"):
                 ui.button("Edit", on_click=self._on_edit_click).classes(
-                    "apple-btn-secondary"
-                ).props("dense no-caps unelevated").style(
-                    "padding: 0 16px; font-size: 13px; height: 32px; line-height: 32px;"
-                )
+                    "apple-btn-secondary").props("dense no-caps unelevated").style(
+                    "padding: 0 16px; height: 34px;")
                 ui.button("Send masked", on_click=self._on_send_click).classes(
-                    "apple-btn-primary"
-                ).props("dense no-caps unelevated").style(
-                    "padding: 0 16px; font-size: 13px; height: 32px; line-height: 32px;"
-                )
-
-            # Masked preview (single line)
-            self._masked_preview_label = ui.label(masked_text).style(
-                f"font-size: 12px; color: {COLORS['text_secondary']}; "
-                "white-space: pre-wrap; line-height: 1.4;"
-            )
+                    "apple-btn-primary").props("dense no-caps unelevated").style(
+                    "padding: 0 16px; height: 34px;")
 
     def hide(self) -> None:
         self.panel.visible = False
 
     def get_approved_spans(self) -> list:
-        return [
-            span for i, span in enumerate(self._spans) if self._entity_states.get(i, True)
-        ]
+        return [s for i, s in enumerate(self._spans) if self._entity_states.get(i, True)]
 
-    def _render_entity_pill(self, index: int, span) -> None:
+    def _render_entity(self, index: int, span) -> None:
         entity_text = span.entity_text if hasattr(span, "entity_text") else str(span.get("entity_text", ""))
         category = span.category.value if hasattr(span, "category") else str(span.get("category", ""))
+        with ui.row().classes("ent w-full items-center"):
+            ui.html(f'<span class="val">"{html_lib.escape(entity_text)}"</span>'
+                    f'<span class="cat">{html_lib.escape(category.upper())}</span>')
+            switch = ui.switch(value=True).props("dense color=primary")
 
-        pill = ui.element("div").classes("entity-pill")
-        with pill:
-            ui.label(f'"{entity_text}"').style("font-size: 12px;")
-            ui.label(category).classes("category")
-            switch = ui.switch(value=True).props("dense").style("margin-left: 4px;")
-
-            def on_toggle(e, idx=index, p=pill):
+            def on_toggle(e, idx=index):
                 self._entity_states[idx] = e.value
-                if e.value:
-                    p.classes(remove="rejected")
-                else:
-                    p.classes(add="rejected")
-                self._update_masked_preview()
+                self._update_preview()
 
             switch.on("update:model-value", on_toggle)
 
-    def _update_masked_preview(self) -> None:
+    def _preview_html(self, text: str) -> str:
+        return (f'<div style="font:500 12px/1.5 {FONT_MONO}; color: {COLORS["ink_2"]};'
+                f' white-space: pre-wrap;">{_redacted_html(text)}</div>')
+
+    def _update_preview(self) -> None:
         text = self._masking.apply(self._original_text, self.get_approved_spans())
-        if self._masked_preview_label:
-            self._masked_preview_label.text = text
+        if self._preview:
+            self._preview.content = self._preview_html(text)
 
     async def _on_send_click(self) -> None:
         await self._on_send(self.get_approved_spans())
@@ -512,151 +330,77 @@ class ReviewPanel:
 
 
 # ---------------------------------------------------------------------------
-# TextHighlightOverlay — colored underlines beneath the textarea
+# TextHighlightOverlay — the live token-risk meter
 # ---------------------------------------------------------------------------
 
 class TextHighlightOverlay:
-    """Persistent utterance log with colored risk underlines.
-
-    Shows all past utterances (grayed, with risk colors) plus the current
-    in-progress buffer on a new line.
-    """
+    """Per-word risk underlines for past utterances + the current buffer."""
 
     def __init__(self) -> None:
-        self.container = ui.html("").style(
-            f"font-size: 13px; line-height: 1.7; padding: 8px 0; min-height: 20px; "
-            f"font-family: {FONT_STACK}; word-break: break-word;"
-        )
+        self.container = ui.html("").classes("toks").style("min-height: 20px;")
 
-    def render_all(
-        self,
-        past_utterances: list[dict],
-        current_text: str,
-        current_risk_history: list[dict],
-    ) -> None:
-        """Render all past utterances plus the current in-progress buffer.
-
-        Args:
-            past_utterances: list of {"text", "risk_history", "was_masked"} dicts
-            current_text: current buffer being typed
-            current_risk_history: risk entries for the current buffer (local word indices)
-        """
+    def render_all(self, past_utterances: list[dict], current_text: str,
+                   current_risk_history: list[dict]) -> None:
         parts: list[str] = []
-
-        # Past utterances (dimmed)
         for utt in past_utterances:
-            line = self._render_utterance(
-                utt["text"], utt["risk_history"], dimmed=True,
-            )
-            parts.append(line)
-
-        # Current buffer (bright)
+            parts.append(self._render_utterance(utt["text"], utt["risk_history"], dimmed=True))
         if current_text:
-            line = self._render_utterance(
-                current_text, current_risk_history, dimmed=False,
-            )
-            parts.append(line)
-
+            parts.append(self._render_utterance(current_text, current_risk_history, dimmed=False))
         self.container.content = "<br/>".join(parts) if parts else ""
 
-    def _render_utterance(
-        self, text: str, risk_history: list[dict], dimmed: bool,
-    ) -> str:
-        """Render one utterance with colored underlines."""
-        # Build word_index -> score map. risk_history entries have "char_idx"
-        # which may be a global word index; we need local word index.
-        # Compute the local index by finding the min char_idx in this history.
-        if risk_history:
-            min_idx = min(r["char_idx"] for r in risk_history)
-        else:
-            min_idx = 0
-
-        word_scores: dict[int, float] = {}
-        for entry in risk_history:
-            local_word_idx = entry["char_idx"] - min_idx
-            word_scores[local_word_idx] = entry["p_risk"]
-
-        words = text.split(" ")
-        word_parts: list[str] = []
-        opacity = "0.5" if dimmed else "1.0"
-
-        for wi, word in enumerate(words):
+    def _render_utterance(self, text: str, risk_history: list[dict], dimmed: bool) -> str:
+        min_idx = min((r["char_idx"] for r in risk_history), default=0)
+        word_scores = {r["char_idx"] - min_idx: r["p_risk"] for r in risk_history}
+        opacity = "0.45" if dimmed else "1.0"
+        parts: list[str] = []
+        for wi, word in enumerate(text.split(" ")):
             escaped = html_lib.escape(word)
             score = word_scores.get(wi)
-
-            if score is not None:
-                if score >= 0.7:
-                    color = COLORS["risk_danger"]
-                    border = f"border-bottom: 2px solid {color};"
-                elif score >= 0.3:
-                    color = COLORS["risk_warning"]
-                    border = f"border-bottom: 2px solid {color};"
-                else:
-                    color = COLORS["risk_safe"]
-                    border = f"border-bottom: 1px solid {color};"
-                word_parts.append(
-                    f'<span style="{border} opacity: {opacity};">{escaped}</span>'
-                )
+            if score is None:
+                cls = "s0"
+            elif score >= 0.7:
+                cls = "s3"
+            elif score >= 0.3:
+                cls = "s2"
             else:
-                word_parts.append(
-                    f'<span style="opacity: {opacity};">{escaped}</span>'
-                )
-
-        return " ".join(word_parts)
+                cls = "s1"
+            parts.append(f'<span class="tok {cls}" style="opacity:{opacity};">{escaped}</span>')
+        return " ".join(parts)
 
     def clear(self) -> None:
         self.container.content = ""
 
 
 # ---------------------------------------------------------------------------
-# StatusIndicator — minimal colored dot + label
+# StatusIndicator — minimal state line under the meter
 # ---------------------------------------------------------------------------
 
 class StatusIndicator:
-    """Apple-style minimal status indicator with colored dot."""
+    """Minimal status line (mono)."""
 
     def __init__(self) -> None:
-        with ui.row().classes("items-center gap-2"):
-            self._dot = ui.html(self._dot_html(COLORS["risk_safe"]))
-            self._label = ui.label("Ready").style(
-                f"font-size: 12px; color: {COLORS['text_secondary']};"
-            )
+        self.el = ui.html(self._html(COLORS["safe"], "Ready"))
 
-    def update(
-        self,
-        is_processing: bool = False,
-        is_classifying: bool = False,
-        chars_processed: int = 0,
-        was_masked: bool = False,
-        error: Optional[str] = None,
-        send_blocked: bool = False,
-    ) -> None:
+    def update(self, is_processing: bool = False, is_classifying: bool = False,
+               chars_processed: int = 0, was_masked: bool = False,
+               error: Optional[str] = None, send_blocked: bool = False) -> None:
         if send_blocked:
-            self._dot.content = self._dot_html(COLORS["risk_warning"])
-            self._label.text = "Analyzing — send when ready"
+            self.el.content = self._html(COLORS["warn"], "Analyzing — send when ready")
         elif error:
-            self._dot.content = self._dot_html(COLORS["risk_danger"])
-            self._label.text = f"Error: {error}"
+            self.el.content = self._html(COLORS["danger"], f"Error: {error}")
         elif is_processing:
-            self._dot.content = self._dot_html(COLORS["risk_warning"])
-            self._label.text = "Processing..."
+            self.el.content = self._html(COLORS["warn"], "Processing…")
         elif is_classifying:
-            self._dot.content = self._dot_html(COLORS["risk_warning"])
-            self._label.text = "Analyzing..."
+            self.el.content = self._html(COLORS["warn"], "Analyzing…")
         elif chars_processed > 0:
-            color = COLORS["risk_danger"] if was_masked else COLORS["risk_safe"]
-            self._dot.content = self._dot_html(color)
-            label = f"{chars_processed} chars"
-            if was_masked:
-                label += " (masked)"
-            self._label.text = label
+            color = COLORS["danger"] if was_masked else COLORS["safe"]
+            self.el.content = self._html(color, f"{chars_processed} chars" + (" · masked" if was_masked else " · clear"))
         else:
-            self._dot.content = self._dot_html(COLORS["risk_safe"])
-            self._label.text = "Ready"
+            self.el.content = self._html(COLORS["safe"], "Ready")
 
     @staticmethod
-    def _dot_html(color: str) -> str:
-        return (
-            f'<div style="width: 8px; height: 8px; border-radius: 50%; '
-            f'background: {color}; flex-shrink: 0;"></div>'
-        )
+    def _html(color: str, text: str) -> str:
+        return (f'<div style="display:flex;align-items:center;gap:8px;'
+                f'font:500 11px/1 {FONT_MONO};color:{COLORS["ink_3"]};">'
+                f'<span style="width:8px;height:8px;border-radius:50%;background:{color};'
+                f'flex-shrink:0;"></span>{html_lib.escape(text)}</div>')
