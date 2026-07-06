@@ -401,37 +401,21 @@ class HoldbackBuffer:
 
     Raw text is accumulated here. Masking decisions are made on the buffer,
     and only masked/approved text is emitted. Once emitted, text cannot be
-    "unmasked" (irreversible).
+    "unmasked" (irreversible). Cross-buffer risk continuity is carried by the
+    EMA in RiskState, not by retaining text here.
     """
 
     raw_text: str = ""
-    overlap_tail: str = ""  # Last N chars retained for cross-chunk entity detection
-    max_overlap: int = 64  # Characters to retain for overlap
 
     def append(self, text: str) -> None:
         """Add new text to the buffer."""
         self.raw_text += text
 
-    def flush(self, keep_overlap: bool = True) -> str:
-        """Return and clear buffer contents.
-
-        Args:
-            keep_overlap: If True, retain last max_overlap chars in overlap_tail
-
-        Returns:
-            The flushed text
-        """
+    def flush(self) -> str:
+        """Return and clear buffer contents."""
         flushed = self.raw_text
-        if keep_overlap and len(flushed) > self.max_overlap:
-            self.overlap_tail = flushed[-self.max_overlap :]
-        else:
-            self.overlap_tail = flushed if keep_overlap else ""
         self.raw_text = ""
         return flushed
-
-    def get_window_with_overlap(self) -> str:
-        """Get the full window including overlap tail for entity detection."""
-        return self.overlap_tail + self.raw_text
 
     def __len__(self) -> int:
         return len(self.raw_text)

@@ -129,6 +129,15 @@ class TestStage2RedactorRealMode:
         assert output.spans[0].entity_text == "alice@test.com"
         assert output.spans[1].entity_text == "555-123-4567"
 
+    def test_parse_category_with_trailing_punctuation(self, redactor):
+        """A trailing ';' on the category (from concatenated MASK commands with
+        no space) must not derail parsing into the default identifier."""
+        output_str = 'MASK "4532-1234-5678-9012" financial; MASK "x@y.com" contact'
+        output = redactor._parse_extraction_output(output_str)
+        cats = {s.category for s in output.spans}
+        assert PIICategory.FINANCIAL in cats
+        assert PIICategory.CONTACT in cats
+
     def test_parse_different_categories(self, redactor):
         """Test parsing different PII categories."""
         test_cases = [

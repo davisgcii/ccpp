@@ -301,11 +301,11 @@ def create_app(state: PIIClientState) -> None:
                     state.risk_history.append(risk_entry)
                     state.last_classified_len = len(original_text)
 
-            # Masking decision — delegated to the guard so its hold-back buffer,
-            # overlap tail, and evaluate/flush path are the real engine. The
-            # per-token timer already updated risk_state / any_risk_in_buffer;
+            # Masking decision — delegated to the guard's evaluate/flush path.
+            # The per-token timer already updated risk_state / any_risk_in_buffer;
             # here we populate the buffer and let evaluate_buffer run Stage 2 on
-            # the window (which includes the overlap tail from the prior utterance).
+            # this message. Cross-message risk continuity is carried by the EMA,
+            # not by splicing prior text into this buffer.
             with state.lock:
                 ema_risk = state.guard.risk_state.ema_risk
                 any_risk_flag = state.guard.any_risk_in_buffer
@@ -401,8 +401,8 @@ def create_app(state: PIIClientState) -> None:
             state.current_char_data = []
             state.last_classified_len = 0
             state.committed_text = ""
-            # Flush the guard: clears the buffer and risk state, retaining the
-            # overlap tail so PII split across utterances is caught next time.
+            # Flush the guard: clears the buffer and per-utterance risk flags.
+            # The EMA persists (decays naturally) to carry cross-message risk.
             state.guard.flush_emitted()
 
         # Advance word offset for next utterance

@@ -269,15 +269,17 @@ class TestHoldbackBuffer:
 
     def test_holdback_buffer_creation(self):
         """Test creating a HoldbackBuffer."""
-        buffer = HoldbackBuffer(raw_text="Hello", overlap_tail="llo")
+        buffer = HoldbackBuffer(raw_text="Hello")
         assert buffer.raw_text == "Hello"
-        assert buffer.overlap_tail == "llo"
 
-    def test_holdback_buffer_empty(self):
-        """Test empty HoldbackBuffer."""
-        buffer = HoldbackBuffer(raw_text="", overlap_tail="")
+    def test_holdback_buffer_append_and_flush(self):
+        """append accumulates; flush returns and clears (no retained tail)."""
+        buffer = HoldbackBuffer()
+        buffer.append("Hello ")
+        buffer.append("world")
+        assert buffer.raw_text == "Hello world"
+        assert buffer.flush() == "Hello world"
         assert buffer.raw_text == ""
-        assert buffer.overlap_tail == ""
 
 
 class TestRiskState:
