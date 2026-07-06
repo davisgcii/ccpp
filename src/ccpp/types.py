@@ -112,7 +112,6 @@ class RiskScore:
     """
 
     score: float  # 0.0 = safe, 1.0 = definitely contains PII (P(FAIL) from logits)
-    top_category: Optional[PIICategory] = None  # Not used in logit-based approach
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.score <= 1.0:

@@ -44,15 +44,14 @@ class TestRiskScore:
 
     def test_risk_score_creation(self):
         """Test creating a RiskScore."""
-        score = RiskScore(score=0.75, top_category=PIICategory.CONTACT)
+        score = RiskScore(score=0.75)
         assert score.score == 0.75
-        assert score.top_category == PIICategory.CONTACT
 
     def test_risk_score_bounds(self):
         """Test that risk scores are bounded [0, 1]."""
         # This would ideally be enforced by the type
-        score1 = RiskScore(score=0.0, top_category=None)
-        score2 = RiskScore(score=1.0, top_category=None)
+        score1 = RiskScore(score=0.0)
+        score2 = RiskScore(score=1.0)
         assert 0.0 <= score1.score <= 1.0
         assert 0.0 <= score2.score <= 1.0
 
