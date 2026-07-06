@@ -18,7 +18,7 @@ from ccpp.nicegui.components import (
     StatusIndicator,
     TextHighlightOverlay,
 )
-from ccpp.nicegui.input_model import committed_prefix, reconcile_input
+from ccpp.nicegui.input_model import committed_prefix
 from ccpp.nicegui.styles import COLORS, FONT_STACK, GLOBAL_CSS
 from ccpp.types import ApprovedModel, BufferMetadata, CharClassification
 
@@ -137,21 +137,13 @@ def create_app(state: PIIClientState) -> None:
         logger.info(f"[on_user_type] len={len(current_text)} text={repr(current_text[-30:])}")
 
         with state.lock:
-            # Append-only input model: committed text (through the last space) is
-            # locked. Editing/deleting it (e.g. backspace right after a space) is
-            # rejected and the field snaps back to the committed text.
-            accepted, reverted = reconcile_input(current_text, state.committed_text)
-            if reverted:
-                _components["input"].value = accepted
-                state.buffer = accepted
-                logger.info("[on_user_type] reverted edit into committed text")
-                return
-            current_text = accepted
-
             prev_len = len(state.buffer)
             state.buffer = current_text
             state.last_input_time = time.time()
-            # Space commits the current token: advance committed text to the last space.
+            # Space commits the current token: advance committed text to the last
+            # space. Append-only editing is enforced client-side (a keydown guard
+            # blocks backspace/delete into committed text) so the server never
+            # fights the textarea's value while the user types.
             state.committed_text, _in_progress = committed_prefix(current_text)
 
             if len(current_text) != prev_len:
@@ -283,7 +275,11 @@ def create_app(state: PIIClientState) -> None:
                     state.is_classifying = True
                 _components["status"].update(is_processing=True, is_classifying=True)
 
-                risk_score = await run.io_bound(state.stage1.classify, conv_snapshot, original_text)
+                # MLX must run on the main thread — the Metal backend crashes when
+                # called from run.io_bound's worker pool (same reason the timer
+                # runs Stage 1 synchronously). The is_processing flag pauses the
+                # timer, so there is no concurrent MLX access here.
+                risk_score = state.stage1.classify(conv_snapshot, original_text)
 
                 with state.lock:
                     state.is_classifying = False
@@ -316,7 +312,8 @@ def create_app(state: PIIClientState) -> None:
                 state.guard.messages = conv_snapshot
                 state.guard.buffer.raw_text = original_text
 
-            decision = await run.io_bound(state.guard.evaluate_buffer)
+            # Run Stage 2 on the main thread too (Metal crashes from the pool).
+            decision = state.guard.evaluate_buffer()
 
             should_mask = decision.should_mask
             strong_heuristic = decision.strong_heuristic
@@ -565,13 +562,23 @@ def create_app(state: PIIClientState) -> None:
     @ui.page("/")
     def main_page():
         ui.add_head_html(f"<style>{GLOBAL_CSS}</style>")
-        # Prevent bare Enter from inserting a newline in textareas;
-        # Shift+Enter still inserts a newline normally.
+        # Textarea keydown guard (client-side, so the server never fights the
+        # value): bare Enter submits (no newline); and the append-only input
+        # model — only the token after the last space is editable, so backspace/
+        # delete cannot reach into already-committed text.
         ui.add_head_html("""<script>
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey &&
-                e.target && e.target.tagName === 'TEXTAREA') {
-                e.preventDefault();
+            if (!(e.target && e.target.tagName === 'TEXTAREA')) return;
+            // Enter submits; Shift+Enter inserts a newline.
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); return; }
+            // Append-only: everything through the last space is committed/locked.
+            const el = e.target;
+            const committedEnd = el.value.lastIndexOf(' ') + 1;
+            const s = el.selectionStart, en = el.selectionEnd;
+            if (e.key === 'Backspace') {
+                if (s === en ? s <= committedEnd : s < committedEnd) e.preventDefault();
+            } else if (e.key === 'Delete') {
+                if (s < committedEnd) e.preventDefault();
             }
         });
         </script>""")
