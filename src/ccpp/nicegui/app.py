@@ -305,33 +305,26 @@ def create_app(state: PIIClientState) -> None:
                     state.risk_history.append(risk_entry)
                     state.last_classified_len = len(original_text)
 
-            # Masking decision
+            # Masking decision — delegated to the guard so its hold-back buffer,
+            # overlap tail, and evaluate/flush path are the real engine. The
+            # per-token timer already updated risk_state / any_risk_in_buffer;
+            # here we populate the buffer and let evaluate_buffer run Stage 2 on
+            # the window (which includes the overlap tail from the prior utterance).
             with state.lock:
-                should_mask = False
                 ema_risk = state.guard.risk_state.ema_risk
                 any_risk_flag = state.guard.any_risk_in_buffer
+                state.guard.messages = conv_snapshot
+                state.guard.buffer.raw_text = original_text
 
-                if any_risk_flag or ema_risk >= state.t_high:
-                    should_mask = True
+            decision = await run.io_bound(state.guard.evaluate_buffer)
 
-                heuristic_matches = state.heuristics.detect(original_text)
-                strong_heuristic = state.heuristics.has_strong_match(heuristic_matches)
-                if strong_heuristic:
-                    should_mask = True
-
+            should_mask = decision.should_mask
+            strong_heuristic = decision.strong_heuristic
+            stage2_result = decision.redactor_output
             masked_text = original_text
-            stage2_result = None
 
-            if should_mask:
-                stage2_result = await run.io_bound(
-                    state.stage2.redact,
-                    messages=conv_snapshot,
-                    window_text=original_text,
-                )
-
-                if stage2_result.spans:
-                    masked_text = state.masking.apply(original_text, stage2_result.spans)
-
+            if stage2_result and stage2_result.spans:
+                masked_text = state.masking.apply(original_text, stage2_result.spans)
                 logger.info(f"[STAGE2] entities={len(stage2_result.spans)} result={stage2_result}")
 
             was_masked = original_text != masked_text
@@ -410,7 +403,10 @@ def create_app(state: PIIClientState) -> None:
             state.risk_history = []
             state.current_char_data = []
             state.last_classified_len = 0
-            state.guard.any_risk_in_buffer = False
+            state.committed_text = ""
+            # Flush the guard: clears the buffer and risk state, retaining the
+            # overlap tail so PII split across utterances is caught next time.
+            state.guard.flush_emitted()
 
         # Advance word offset for next utterance
         word_count = len(original_text.split())
