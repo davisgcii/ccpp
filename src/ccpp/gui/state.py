@@ -4,16 +4,17 @@ import logging
 import os
 import time
 from typing import Optional
-from dotenv import load_dotenv
-from anthropic import Anthropic
 
+from anthropic import Anthropic
+from dotenv import load_dotenv
+
+from ccpp.config import get_masking_config, get_stage1_config, get_stage2_config, load_config
+from ccpp.gui.instrumented_lock import InstrumentedRLock
 from ccpp.infer.guard import ExchangePIIGuard
+from ccpp.infer.heuristics import FastHeuristics
 from ccpp.infer.stage1_router import Stage1Router
 from ccpp.infer.stage2_redactor import Stage2Redactor
-from ccpp.infer.heuristics import FastHeuristics
-from ccpp.config import load_config, get_stage1_config, get_stage2_config, get_masking_config
-from ccpp.types import CharClassification, BufferMetadata
-from ccpp.gui.instrumented_lock import InstrumentedRLock
+from ccpp.types import BufferMetadata, CharClassification
 
 # Load environment variables
 load_dotenv()
@@ -90,6 +91,9 @@ class PIIClientState:
 
         # State variables
         self.buffer = ""
+        # Append-only input model: text committed (through the last space) and
+        # locked from editing. Space commits the current token.
+        self.committed_text = ""
         self.risk_history = []  # [(char_idx, p_risk, ema, any_risk), ...] for current buffer
         self.archived_risk_history = []  # Historical data from previous buffers for smooth chart transitions
         self.conversation = []  # Enhanced with metadata field
@@ -124,6 +128,7 @@ class PIIClientState:
         """Reset state for new conversation."""
         with self.lock:
             self.buffer = ""
+            self.committed_text = ""
             self.risk_history = []
             self.archived_risk_history = []
             self.conversation = []

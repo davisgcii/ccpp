@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import time
 import logging
+import time
 
-from nicegui import ui, run
+from nicegui import run, ui
 
 from ccpp.config import load_config
-from ccpp.logging_config import configure_from_config, get_logger, TRACE
 from ccpp.gui.state import PIIClientState
-from ccpp.types import ApprovedModel, CharClassification, BufferMetadata
-
-from ccpp.nicegui.styles import COLORS, FONT_STACK, GLOBAL_CSS
+from ccpp.logging_config import TRACE, configure_from_config, get_logger
 from ccpp.nicegui.components import (
     ConversationPanel,
     ReviewPanel,
@@ -21,6 +18,9 @@ from ccpp.nicegui.components import (
     StatusIndicator,
     TextHighlightOverlay,
 )
+from ccpp.nicegui.input_model import committed_prefix, reconcile_input
+from ccpp.nicegui.styles import COLORS, FONT_STACK, GLOBAL_CSS
+from ccpp.types import ApprovedModel, BufferMetadata, CharClassification
 
 logger = get_logger(__name__)
 
@@ -137,14 +137,28 @@ def create_app(state: PIIClientState) -> None:
         logger.info(f"[on_user_type] len={len(current_text)} text={repr(current_text[-30:])}")
 
         with state.lock:
+            # Append-only input model: committed text (through the last space) is
+            # locked. Editing/deleting it (e.g. backspace right after a space) is
+            # rejected and the field snaps back to the committed text.
+            accepted, reverted = reconcile_input(current_text, state.committed_text)
+            if reverted:
+                _components["input"].value = accepted
+                state.buffer = accepted
+                logger.info("[on_user_type] reverted edit into committed text")
+                return
+            current_text = accepted
+
             prev_len = len(state.buffer)
             state.buffer = current_text
             state.last_input_time = time.time()
+            # Space commits the current token: advance committed text to the last space.
+            state.committed_text, _in_progress = committed_prefix(current_text)
 
             if len(current_text) != prev_len:
                 logger.log(TRACE, f"[typing] buf={len(current_text)}ch delta={len(current_text) - prev_len:+d}")
 
             if not current_text:
+                state.committed_text = ""
                 state.risk_history = []
                 state.current_char_data = []
                 state.last_classified_len = 0
