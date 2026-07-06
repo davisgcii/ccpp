@@ -672,5 +672,25 @@ def create_app(state: PIIClientState) -> None:
                                 "border-radius: 12px !important;"
                             ).props("dense flat")
 
+            # ── Restore UI from persistent state ──
+            # NiceGUI re-runs this page function on every (re)connect. If the
+            # event loop stalls (synchronous MLX), the client reconnects and the
+            # panels are rebuilt empty. Re-render them from the persistent state
+            # so a reconnect never loses the visible conversation or chart.
+            if state.conversation:
+                _components["conversation"].render(state.conversation)
+            _restore = state.archived_risk_history + state.risk_history
+            if _restore:
+                _components["chart"].update(
+                    _restore, t_high=state.t_high, t_low=state.t_low,
+                    risk_threshold=state.guard.risk_threshold_immediate,
+                )
+            _components["highlight"].render_all(
+                _session["utterances"], state.buffer, state.risk_history
+            )
+            if state.buffer:
+                _components["input"].value = state.buffer
+            refresh_stats()
+
             # ── Timer ──
             ui.timer(0.5, callback=on_timer_tick)
