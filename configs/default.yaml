@@ -68,7 +68,12 @@ stage1:
   # full: use full template (default)
   # minimal: use a short instruction prompt
   # both: log deltas for full vs minimal (uses full for scoring)
-  diagnostic_prompt_mode: both
+  #
+  # NOTE: "both" runs a SECOND full forward pass per classification purely to
+  # log a diagnostic delta that does not affect the score, ~2x Stage 1 latency.
+  # Keep this "full" in normal operation; only switch to "both"/"minimal" when
+  # actively debugging prompt calibration.
+  diagnostic_prompt_mode: full
 
   # Sequence log-likelihood scoring for SAFE vs FAIL
   # This computes P(prompt + "SAFE") vs P(prompt + "FAIL") as full sequences
