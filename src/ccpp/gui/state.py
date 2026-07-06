@@ -68,6 +68,7 @@ class PIIClientState:
             stream_break_timeout=config.streaming.stream_break_timeout_ms / 1000.0,
             risk_threshold_high=config.streaming.t_high,
             risk_threshold_low=config.streaming.t_low,
+            risk_threshold_immediate=config.streaming.get("risk_threshold", 0.7),
             ema_beta=config.streaming.ema_beta,
         )
 

@@ -203,3 +203,37 @@ class TestConfigExtractors:
         # Case-insensitive masking now catches a case-mismatched name.
         spans = [MaskSpan(entity_text="john", category=PIICategory.PERSON)]
         assert masking.apply("John here", spans) == "[PERSON] here"
+
+
+class TestStreamingConfigWiring:
+    """Regression tests for streaming config -> guard wiring (PR1)."""
+
+    def test_default_config_exposes_risk_threshold(self):
+        """Default config must expose streaming.risk_threshold."""
+        config = load_config()
+        assert hasattr(config.streaming, "risk_threshold")
+        assert 0.0 <= config.streaming.risk_threshold <= 1.0
+
+    def test_risk_threshold_reaches_guard(self):
+        """A custom risk_threshold must flow into the guard, not be dropped.
+
+        Regression: gui/state.py previously omitted risk_threshold_immediate,
+        so the guard silently kept its 0.7 default and config changes had no
+        effect. This mirrors how state.py constructs the guard.
+        """
+        from ccpp.infer.guard import ExchangePIIGuard
+
+        config = load_config(overrides={"streaming": {"risk_threshold": 0.42}})
+        guard = ExchangePIIGuard(
+            risk_threshold_immediate=config.streaming.get("risk_threshold", 0.7),
+        )
+        assert guard.risk_threshold_immediate == 0.42
+
+    def test_diagnostic_prompt_mode_is_full_by_default(self):
+        """Default must be 'full' to avoid a redundant Stage 1 forward pass.
+
+        'both'/'minimal' run an extra full forward pass per classification for
+        diagnostics only; that should never be the shipped default.
+        """
+        config = load_config()
+        assert config.stage1.diagnostic_prompt_mode == "full"
