@@ -258,7 +258,7 @@ def process_pending_classifications(state: PIIClientState) -> bool:
             classifier_response={
                 "p_risk": float(risk_score.score),
                 "p_safe": float(1.0 - risk_score.score),
-                "raw_output": f"RISK {risk_score.score:.3f}",
+                "raw_output": f"P(FAIL)={risk_score.score:.3f}",
             },
             timestamp=time.time(),
         )

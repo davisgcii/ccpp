@@ -106,7 +106,7 @@ class LLMBackend(ABC):
 
         Returns:
             Tuple of (prob_a, prob_b) where prob_a + prob_b ≈ 1.0
-            For example, (0.3, 0.7) means 30% SAFE, 70% RISK
+            For example, (0.3, 0.7) means 30% SAFE, 70% FAIL
 
         Raises:
             ConnectionError: If backend is unavailable

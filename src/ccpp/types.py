@@ -548,7 +548,7 @@ class CharClassification:
 
     char: str  # The character
     idx: int  # Character index in buffer
-    risk_score: float  # P(RISK) from Stage 1
+    risk_score: float  # P(FAIL) from Stage 1
     ema: float  # EMA value after this character
     classifier_prompt: list[dict]  # Full formatted messages sent to Stage 1
     classifier_response: dict  # {p_safe, p_risk, raw_output}

@@ -17,8 +17,8 @@ from ccpp.types import MaskSpan, PIICategory, RedactorOutput
 class Stage2Redactor:
     """Stage 2: Accurate PII entity extractor.
 
-    Mock implementation uses regex patterns. Real implementation will load
-    a fine-tuned model (Qwen2.5-7B or similar) that generates:
+    Mock implementation uses regex patterns. Real implementation loads a
+    fine-tuned model (Qwen3-1.7B, per configs/default.yaml) that generates:
         PASS
         MASK "entity" category
         MASK "entity1" category1; MASK "entity2" category2

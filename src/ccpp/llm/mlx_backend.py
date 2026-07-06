@@ -4,7 +4,7 @@ This backend uses MLX (Apple Silicon ML framework) to load Qwen3 models locally
 and extract calibrated probabilities from raw logits, not just text generation.
 
 Key difference from Ollama backend:
-- Ollama: Generates text, parses "SAFE"/"RISK", returns binary 0.0/1.0
+- Ollama: Generates text, parses "SAFE"/"FAIL", returns binary 0.0/1.0
 - MLX: Extracts raw logits, applies softmax, returns calibrated 0.0-1.0 probabilities
 """
 
@@ -28,7 +28,7 @@ class MLXBackend(LLMBackend):
         backend = MLXBackend(model_name="Qwen/Qwen3-1.7B-MLX-8bit")
         prob_safe, prob_risk = backend.extract_logit_probs(
             [{"role": "user", "content": "Is this PII?"}],
-            LogitExtractionConfig(token_a="SAFE", token_b="RISK")
+            LogitExtractionConfig(token_a="SAFE", token_b="FAIL")
         )
         # Returns calibrated probabilities like (0.73, 0.27)
         ```
@@ -79,7 +79,7 @@ class MLXBackend(LLMBackend):
         """Get token ID for a string, with caching.
 
         Args:
-            token_str: Token string (e.g., "SAFE", "RISK")
+            token_str: Token string (e.g., "SAFE", "FAIL")
 
         Returns:
             Token ID as integer
@@ -200,7 +200,7 @@ class MLXBackend(LLMBackend):
         """Extract calibrated probabilities from raw logits.
 
         This is the key difference from Ollama backend: we get actual
-        logit values for "SAFE" and "RISK" tokens, then apply softmax
+        logit values for "SAFE" and "FAIL" tokens, then apply softmax
         to get calibrated probabilities.
 
         Args:
@@ -244,7 +244,7 @@ class MLXBackend(LLMBackend):
         # Shape: [vocab_size]
         last_logits = logits[0, -1, :]
 
-        # Get token IDs for "SAFE" and "RISK"
+        # Get token IDs for "SAFE" and "FAIL"
         try:
             token_a_id = self._get_token_id(config.token_a)
             token_b_id = self._get_token_id(config.token_b)
