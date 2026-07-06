@@ -408,7 +408,9 @@ stage2:
 
   # Generation settings
   timeout: 120  # seconds
-  max_tokens: 200  # Enough for multiple entity extractions
+  # Mask output is short ("MASK "x" contact; MASK "y" identifier"). Cap tokens
+  # so a run that fails to stop can't balloon to 20s+ (bounds worst-case latency).
+  max_tokens: 80
 
   # Qwen3 recommended settings for non-thinking mode (from Qwen3 docs):
   # Temperature=0.7, TopP=0.8, TopK=20, MinP=0
