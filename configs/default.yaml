@@ -68,7 +68,12 @@ stage1:
   # full: use full template (default)
   # minimal: use a short instruction prompt
   # both: log deltas for full vs minimal (uses full for scoring)
-  diagnostic_prompt_mode: both
+  #
+  # NOTE: "both" runs a SECOND full forward pass per classification purely to
+  # log a diagnostic delta that does not affect the score, ~2x Stage 1 latency.
+  # Keep this "full" in normal operation; only switch to "both"/"minimal" when
+  # actively debugging prompt calibration.
+  diagnostic_prompt_mode: full
 
   # Sequence log-likelihood scoring for SAFE vs FAIL
   # This computes P(prompt + "SAFE") vs P(prompt + "FAIL") as full sequences
@@ -582,11 +587,16 @@ allowlist:
     - pk_test_  # Stripe public test keys
 
 # Masking Output Configuration
+#
+# Honored by every masking call site (Stage 2 output, GUI send path, and the
+# review panel + preview), which all route through ccpp.types.mask_text.
 masking:
-  # Default mask format
-  default_format: "[{category}]"  # e.g., [IDENTIFIER]
+  # Default mask format. Placeholder may be {category} or {type}; both resolve
+  # to the upper-cased category name (e.g., [IDENTIFIER]).
+  default_format: "[{category}]"
 
-  # Category-specific formats (optional)
+  # Category-specific formats (optional; override default_format).
+  # Literal replacement strings, not templates.
   # Categories match training data: person, contact, gov_id, identifier,
   # location, financial, credentials, medical
   category_formats:
@@ -599,7 +609,11 @@ masking:
     credentials: "[CREDENTIALS]"
     medical: "[MEDICAL]"
 
-  # Case sensitivity for entity matching
+  # Case sensitivity for entity matching. false = stricter redaction (mask
+  # regardless of case) at the risk of masking look-alike words.
+  # Note: name-like entities (person) always match on word boundaries so a short
+  # name is not masked inside a larger word; entities with punctuation/digits
+  # (emails, phones, cards, keys) always match as exact substrings.
   case_sensitive: true
 
 # Logging and Monitoring

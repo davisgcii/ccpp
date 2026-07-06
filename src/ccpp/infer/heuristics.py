@@ -8,9 +8,7 @@ before invoking the ML-based classifiers. Focused on simple, reliable patterns:
 More complex patterns (phones, SSNs, credit cards) are left to ML classifiers.
 """
 
-import re
-from typing import Optional
-
+from ccpp.infer import patterns
 from ccpp.types import HeuristicMatch, PIICategory
 
 
@@ -18,39 +16,9 @@ class FastHeuristics:
     """Fast regex-based PII detection with allowlist validation.
 
     Focuses on simple, reliable patterns with low false positive rates.
+    Patterns and allowlists are shared with the Stage 2 mock redactor via
+    :mod:`ccpp.infer.patterns`.
     """
-
-    def __init__(self):
-        # Email pattern
-        self.email_pattern = re.compile(
-            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
-        )
-
-        # API key patterns (high confidence, low false positives)
-        self.aws_key_pattern = re.compile(
-            r"\bAKIA[0-9A-Z]{16}\b"
-        )
-        self.stripe_live_pattern = re.compile(
-            r"\bsk_live_[a-zA-Z0-9]+\b"
-        )
-        self.github_token_pattern = re.compile(
-            r"\bghp_[a-zA-Z0-9]{36}\b"
-        )
-
-        # Allowlisted domains (RFC 2606, RFC 6761)
-        self.allowed_email_domains = {
-            "example.com",
-            "example.org",
-            "example.net",
-            "test",
-            "invalid",
-            "localhost",
-        }
-
-        # Allowlisted AWS example keys
-        self.allowed_aws_keys = {
-            "AKIAIOSFODNN7EXAMPLE",
-        }
 
     def detect(self, text: str) -> list[HeuristicMatch]:
         """Run all heuristic detectors on text.
@@ -85,12 +53,12 @@ class FastHeuristics:
     def _check_emails(self, text: str) -> list[HeuristicMatch]:
         """Detect email addresses (with allowlist filtering)."""
         matches = []
-        for match in self.email_pattern.finditer(text):
+        for match in patterns.EMAIL.finditer(text):
             email = match.group()
             domain = email.split("@")[1].lower()
 
             # Check if domain is allowlisted
-            if self._is_allowed_email_domain(domain):
+            if patterns.is_allowed_email_domain(domain):
                 continue
 
             matches.append(
@@ -105,29 +73,14 @@ class FastHeuristics:
             )
         return matches
 
-    def _is_allowed_email_domain(self, domain: str) -> bool:
-        """Check if email domain is allowlisted."""
-        domain_lower = domain.lower()
-
-        # Exact match
-        if domain_lower in self.allowed_email_domains:
-            return True
-
-        # Subdomain of allowed domain
-        for allowed in self.allowed_email_domains:
-            if domain_lower.endswith(f".{allowed}"):
-                return True
-
-        return False
-
     def _check_aws_keys(self, text: str) -> list[HeuristicMatch]:
         """Detect AWS access keys (with example key filtering)."""
         matches = []
-        for match in self.aws_key_pattern.finditer(text):
+        for match in patterns.AWS_ACCESS_KEY.finditer(text):
             key = match.group()
 
             # Check if allowlisted example key
-            if key in self.allowed_aws_keys:
+            if key in patterns.ALLOWED_AWS_KEYS:
                 continue
 
             matches.append(
@@ -145,7 +98,7 @@ class FastHeuristics:
     def _check_stripe_keys(self, text: str) -> list[HeuristicMatch]:
         """Detect Stripe live API keys (test keys are allowed)."""
         matches = []
-        for match in self.stripe_live_pattern.finditer(text):
+        for match in patterns.STRIPE_LIVE_KEY.finditer(text):
             key = match.group()
 
             matches.append(
@@ -163,7 +116,7 @@ class FastHeuristics:
     def _check_github_tokens(self, text: str) -> list[HeuristicMatch]:
         """Detect GitHub personal access tokens."""
         matches = []
-        for match in self.github_token_pattern.finditer(text):
+        for match in patterns.GITHUB_TOKEN.finditer(text):
             token = match.group()
 
             matches.append(

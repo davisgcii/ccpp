@@ -10,11 +10,12 @@ from ccpp.config import (
     load_config,
     get_stage1_config,
     get_stage2_config,
+    get_masking_config,
     load_default_config,
     _deep_merge,
     _apply_env_overrides,
 )
-from ccpp.types import ApprovedModel
+from ccpp.types import ApprovedModel, MaskingConfig, PIICategory, MaskSpan
 
 
 class TestConfig:
@@ -183,3 +184,56 @@ class TestConfigExtractors:
         # Should be plain dicts suitable for create_backend_from_config
         assert isinstance(stage1, dict)
         assert isinstance(stage2, dict)
+
+    def test_get_masking_config_from_default(self):
+        """Default config maps to a usable MaskingConfig."""
+        config = load_config()
+        masking = get_masking_config(config)
+        assert isinstance(masking, MaskingConfig)
+        assert masking.case_sensitive is True
+        assert masking.category_formats.get("person") == "[PERSON]"
+
+    def test_masking_config_honors_overrides(self):
+        """Config overrides flow into masking behavior."""
+        config = load_config(
+            overrides={"masking": {"case_sensitive": False}}
+        )
+        masking = get_masking_config(config)
+        assert masking.case_sensitive is False
+        # Case-insensitive masking now catches a case-mismatched name.
+        spans = [MaskSpan(entity_text="john", category=PIICategory.PERSON)]
+        assert masking.apply("John here", spans) == "[PERSON] here"
+
+
+class TestStreamingConfigWiring:
+    """Regression tests for streaming config -> guard wiring (PR1)."""
+
+    def test_default_config_exposes_risk_threshold(self):
+        """Default config must expose streaming.risk_threshold."""
+        config = load_config()
+        assert hasattr(config.streaming, "risk_threshold")
+        assert 0.0 <= config.streaming.risk_threshold <= 1.0
+
+    def test_risk_threshold_reaches_guard(self):
+        """A custom risk_threshold must flow into the guard, not be dropped.
+
+        Regression: gui/state.py previously omitted risk_threshold_immediate,
+        so the guard silently kept its 0.7 default and config changes had no
+        effect. This mirrors how state.py constructs the guard.
+        """
+        from ccpp.infer.guard import ExchangePIIGuard
+
+        config = load_config(overrides={"streaming": {"risk_threshold": 0.42}})
+        guard = ExchangePIIGuard(
+            risk_threshold_immediate=config.streaming.get("risk_threshold", 0.7),
+        )
+        assert guard.risk_threshold_immediate == 0.42
+
+    def test_diagnostic_prompt_mode_is_full_by_default(self):
+        """Default must be 'full' to avoid a redundant Stage 1 forward pass.
+
+        'both'/'minimal' run an extra full forward pass per classification for
+        diagnostics only; that should never be the shipped default.
+        """
+        config = load_config()
+        assert config.stage1.diagnostic_prompt_mode == "full"

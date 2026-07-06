@@ -8,9 +8,10 @@ model that generates entity extraction commands.
 import re
 from typing import Optional
 
-from ccpp.types import RedactorOutput, MaskSpan, PIICategory
-from ccpp.llm.base import LLMBackend, GenerationConfig
+from ccpp.infer import patterns
+from ccpp.llm.base import GenerationConfig, LLMBackend
 from ccpp.llm.factory import create_backend_from_config
+from ccpp.types import MaskSpan, PIICategory, RedactorOutput
 
 
 class Stage2Redactor:
@@ -45,19 +46,8 @@ class Stage2Redactor:
         self.backend = None
         self.prompt_template = ""  # Single template with {context} and {window_text}
 
-        # Initialize regex patterns (used in mock mode and for allowlist filtering)
-        self.email_pattern = re.compile(
-            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
-        )
-        self.phone_pattern = re.compile(
-            r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"
-        )
-        self.ssn_pattern = re.compile(
-            r"\b\d{3}-\d{2}-\d{4}\b"
-        )
-        self.api_key_pattern = re.compile(
-            r"\b(sk_live_[a-zA-Z0-9]+|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36})\b"
-        )
+        # Regex patterns for mock-mode extraction live in ccpp.infer.patterns
+        # (shared with FastHeuristics so the two never drift apart).
 
         if not mock_mode:
             # Priority: llm_backend > llm_config > model_path
@@ -137,12 +127,11 @@ class Stage2Redactor:
         """
         spans = []
 
-        # Extract emails
-        for match in self.email_pattern.finditer(window_text):
-            # Filter out example.com and other test domains
+        # Extract emails (skip allowlisted documentation/test domains)
+        for match in patterns.EMAIL.finditer(window_text):
             email = match.group()
             domain = email.split("@")[1].lower()
-            if domain not in ["example.com", "example.org", "example.net", "test", "localhost"]:
+            if not patterns.is_allowed_email_domain(domain):
                 spans.append(
                     MaskSpan(
                         entity_text=email,
@@ -150,11 +139,10 @@ class Stage2Redactor:
                     )
                 )
 
-        # Extract phone numbers
-        for match in self.phone_pattern.finditer(window_text):
+        # Extract phone numbers (skip obvious placeholder prefixes)
+        for match in patterns.PHONE.finditer(window_text):
             phone = match.group()
-            # Filter out 555-01XX and other test numbers
-            if not phone.startswith(("555-01", "555-555", "000-", "999-", "123-")):
+            if not phone.startswith(patterns.TEST_PHONE_PREFIXES):
                 spans.append(
                     MaskSpan(
                         entity_text=phone,
@@ -162,11 +150,10 @@ class Stage2Redactor:
                     )
                 )
 
-        # Extract SSNs
-        for match in self.ssn_pattern.finditer(window_text):
+        # Extract SSNs (skip obvious placeholder SSNs)
+        for match in patterns.SSN.finditer(window_text):
             ssn = match.group()
-            # Filter out obvious test SSNs
-            if ssn not in ["000-00-0000", "999-99-9999", "123-45-6789"]:
+            if ssn not in patterns.TEST_SSNS:
                 spans.append(
                     MaskSpan(
                         entity_text=ssn,
@@ -174,11 +161,10 @@ class Stage2Redactor:
                     )
                 )
 
-        # Extract API keys
-        for match in self.api_key_pattern.finditer(window_text):
+        # Extract API keys (skip allowlisted example keys)
+        for match in patterns.API_KEY.finditer(window_text):
             key = match.group()
-            # Filter out example keys
-            if key != "AKIAIOSFODNN7EXAMPLE":
+            if key not in patterns.ALLOWED_AWS_KEYS:
                 spans.append(
                     MaskSpan(
                         entity_text=key,

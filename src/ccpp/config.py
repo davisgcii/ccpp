@@ -15,7 +15,7 @@ except ImportError:
         "PyYAML required for config loading. Install with: uv pip install pyyaml"
     )
 
-from ccpp.types import ApprovedModel
+from ccpp.types import ApprovedModel, MaskingConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -336,6 +336,40 @@ def get_stage2_config(config: Config) -> Dict[str, Any]:
         result["adapter_path"] = config.stage2.adapter_path
 
     return result
+
+
+def get_masking_config(config: Config) -> MaskingConfig:
+    """Extract masking-output settings as a :class:`MaskingConfig`.
+
+    Honors the ``masking`` config section (``default_format``,
+    ``category_formats``, ``case_sensitive``), falling back to sensible defaults
+    when the section or individual keys are absent. Word-boundary behavior uses
+    the code-level default (name-like categories only).
+
+    Args:
+        config: Main config object
+
+    Returns:
+        MaskingConfig used by every masking call site.
+    """
+    masking = getattr(config, "masking", None)
+    if masking is None:
+        return MaskingConfig()
+
+    def _get(key: str, default: Any) -> Any:
+        if isinstance(masking, Config):
+            return masking.get(key, default)
+        return getattr(masking, key, default)
+
+    category_formats = _get("category_formats", {})
+    if isinstance(category_formats, Config):
+        category_formats = category_formats.to_dict()
+
+    return MaskingConfig(
+        mask_format=_get("default_format", "[{category}]"),
+        category_formats=dict(category_formats or {}),
+        case_sensitive=bool(_get("case_sensitive", True)),
+    )
 
 
 # Convenience function for loading default config

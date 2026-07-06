@@ -142,11 +142,15 @@ heuristics:
 
 ### Masking Output
 
+These settings are honored by every masking call site (Stage 2 output, the GUI
+send path, and the review panel + its live preview), which all route through the
+single `ccpp.types.mask_text` implementation via `MaskingConfig`.
+
 ```yaml
 masking:
-  default_format: "[{category}]"   # Default mask format
+  default_format: "[{category}]"   # Default mask format (placeholder: {category} or {type})
 
-  category_formats:                 # Category-specific formats
+  category_formats:                 # Category-specific formats (override default_format)
     person: "[PERSON]"
     contact: "[CONTACT]"
     gov_id: "[GOV_ID]"
@@ -158,6 +162,23 @@ masking:
 
   case_sensitive: true              # Match entities case-sensitively
 ```
+
+**Placeholder:** `default_format` accepts either `{category}` or `{type}` — both
+resolve to the upper-cased category name (e.g. `CONTACT`). `category_formats`
+entries are literal strings and take precedence over `default_format`.
+
+**`case_sensitive`:** when `true` (default), an entity is masked only where the
+casing matches. Set to `false` for stricter redaction (e.g. mask `John Smith`
+even if the detector returned `john smith`), at the cost of possibly masking
+look-alike words with different casing.
+
+**Word-boundary matching:** name-like entities (the `person` category) are
+matched on word boundaries so a short name is not masked inside a larger word
+(e.g. `Priya` is not masked inside `Priyanka`). Entities that contain
+punctuation or digits (emails, phone numbers, cards, keys, IDs) always use exact
+substring matching so they are never missed. This behavior is a code-level
+default (`ccpp.types.WORD_BOUNDARY_CATEGORIES`) and is not currently configurable
+via YAML.
 
 ## Environment-Specific Overrides
 

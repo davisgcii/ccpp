@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
+from ccpp.types import MaskingConfig
 from ccpp.nicegui.styles import COLORS, FONT_STACK
 
 
@@ -410,9 +411,17 @@ class SessionSparkline:
 class ReviewPanel:
     """Compact review panel for detected entities before sending to LLM."""
 
-    def __init__(self, on_send: Callable, on_edit: Callable) -> None:
+    def __init__(
+        self,
+        on_send: Callable,
+        on_edit: Callable,
+        masking: Optional[MaskingConfig] = None,
+    ) -> None:
         self._on_send = on_send
         self._on_edit = on_edit
+        # Same masking settings as the send path, so the preview matches exactly
+        # what will be emitted on approval.
+        self._masking = masking or MaskingConfig()
         self._entity_states: dict[int, bool] = {}
         self._original_text = ""
         self._spans: list = []
@@ -490,11 +499,7 @@ class ReviewPanel:
             switch.on("update:model-value", on_toggle)
 
     def _update_masked_preview(self) -> None:
-        text = self._original_text
-        for span in self.get_approved_spans():
-            entity_text = span.entity_text if hasattr(span, "entity_text") else str(span.get("entity_text", ""))
-            cat = span.category.value if hasattr(span, "category") else str(span.get("category", ""))
-            text = text.replace(entity_text, f"[{cat.upper()}]")
+        text = self._masking.apply(self._original_text, self.get_approved_spans())
         if self._masked_preview_label:
             self._masked_preview_label.text = text
 
