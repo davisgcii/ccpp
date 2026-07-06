@@ -70,8 +70,7 @@ class TestStage1RouterRealMode:
         """Test initialization in real mode."""
         assert router.mock_mode is False
         assert router.backend is mock_llm_backend
-        assert len(router.few_shot_examples) > 0
-        assert router.system_prompt != ""
+        assert router.prompt_template != ""
 
     def test_init_requires_backend(self, stage1_config):
         """Test that real mode requires backend or config."""
@@ -105,14 +104,24 @@ class TestStage1RouterRealMode:
         assert risk.score == 0.9
         assert risk.score > 0.7
 
-    def test_format_prompt_with_few_shot(self, router, sample_messages):
-        """Test prompt formatting with few-shot examples."""
-        messages = router._format_prompt_with_few_shot(sample_messages, "Current text")
+    def test_build_prompt_uses_template(self, router, sample_messages):
+        """Prompt is built from the template with context + buffer filled in."""
+        messages = router._build_prompt(sample_messages, "Current text")
 
-        # Should have system prompt + examples + actual query
-        assert len(messages) > 0
-        assert messages[0]["role"] == "system"
-        assert any("SAFE" in msg.get("content", "") for msg in messages)
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert "Current text" in messages[0]["content"]
+
+    def test_build_prompt_fallback_without_template(self, mock_llm_backend, stage1_config):
+        """Without a template, a single self-contained query is produced."""
+        cfg = {k: v for k, v in stage1_config.items() if k != "prompt_template"}
+        router = Stage1Router(
+            llm_backend=mock_llm_backend, llm_config=cfg, mock_mode=False
+        )
+        messages = router._build_prompt([], "Some buffer")
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert "Some buffer" in messages[0]["content"]
 
     def test_format_context_empty(self, router):
         """Test context formatting with no messages."""
@@ -134,8 +143,7 @@ class TestStage1RouterRealMode:
             mock_mode=False,
         )
 
-        assert router.system_prompt == stage1_config["system_prompt"]
-        assert len(router.few_shot_examples) == len(stage1_config["few_shot"]["examples"])
+        assert router.prompt_template == stage1_config["prompt_template"]
         assert router.logit_config.token_a == "SAFE"
         assert router.logit_config.token_b == "FAIL"
 

@@ -66,23 +66,10 @@ def stage1_config() -> Dict:
             "token_a": "SAFE",
             "token_b": "FAIL",
         },
-        "few_shot": {
-            "enabled": True,
-            "num_examples": 2,
-            "examples": [
-                {
-                    "messages": [],
-                    "current_buffer": "Hello there",
-                    "label": "SAFE",
-                },
-                {
-                    "messages": [],
-                    "current_buffer": "My email is test@example.com",
-                    "label": "FAIL",
-                },
-            ],
-        },
-        "system_prompt": "You are a PII classifier. Respond SAFE or FAIL.",
+        "prompt_template": (
+            "You are a PII classifier. Respond SAFE or FAIL.\n\n"
+            "Context:\n{context}\n\nBuffer:\n{current_buffer}\n\nAnswer:"
+        ),
     }
 
 
@@ -97,23 +84,10 @@ def stage2_config() -> Dict:
             "temperature": 0.0,
             "do_sample": False,
         },
-        "few_shot": {
-            "enabled": True,
-            "num_examples": 2,
-            "examples": [
-                {
-                    "messages": [],
-                    "window_text": "Contact me at alice@company.com",
-                    "output": 'MASK "alice@company.com" contact',
-                },
-                {
-                    "messages": [],
-                    "window_text": "Hello there",
-                    "output": "PASS",
-                },
-            ],
-        },
-        "system_prompt": "You are a PII entity extractor. Output PASS or MASK \"entity\" category.",
+        "prompt_template": (
+            "You are a PII entity extractor. Output PASS or MASK \"entity\" category.\n\n"
+            "Context:\n{context}\n\nWindow text:\n{window_text}\n\nOutput:"
+        ),
     }
 
 

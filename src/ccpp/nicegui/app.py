@@ -73,8 +73,8 @@ def process_pending_classifications(state: PIIClientState, session: dict) -> boo
             state.guard.any_risk_in_buffer = True
 
         classifier_prompt = (
-            state.stage1._format_prompt_with_few_shot(conversation_snapshot, text_to_classify)
-            if hasattr(state.stage1, "_format_prompt_with_few_shot")
+            state.stage1._build_prompt(conversation_snapshot, text_to_classify)
+            if hasattr(state.stage1, "_build_prompt")
             else []
         )
 

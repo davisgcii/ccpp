@@ -247,7 +247,7 @@ def process_pending_classifications(state: PIIClientState) -> bool:
             state.guard.any_risk_in_buffer = True
 
         # Build CharClassification
-        classifier_prompt = state.stage1._format_prompt_with_few_shot(conversation_snapshot, text_to_classify) if hasattr(state.stage1, '_format_prompt_with_few_shot') else []
+        classifier_prompt = state.stage1._build_prompt(conversation_snapshot, text_to_classify) if hasattr(state.stage1, '_build_prompt') else []
 
         char_classification = CharClassification(
             char=" ",
