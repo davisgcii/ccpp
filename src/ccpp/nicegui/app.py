@@ -18,7 +18,7 @@ from ccpp.nicegui.components import (
     StatusIndicator,
     TextHighlightOverlay,
 )
-from ccpp.nicegui.input_model import committed_prefix, reconcile_input
+from ccpp.nicegui.input_model import committed_prefix
 from ccpp.nicegui.styles import COLORS, FONT_STACK, GLOBAL_CSS
 from ccpp.types import ApprovedModel, BufferMetadata, CharClassification
 
@@ -137,21 +137,13 @@ def create_app(state: PIIClientState) -> None:
         logger.info(f"[on_user_type] len={len(current_text)} text={repr(current_text[-30:])}")
 
         with state.lock:
-            # Append-only input model: committed text (through the last space) is
-            # locked. Editing/deleting it (e.g. backspace right after a space) is
-            # rejected and the field snaps back to the committed text.
-            accepted, reverted = reconcile_input(current_text, state.committed_text)
-            if reverted:
-                _components["input"].value = accepted
-                state.buffer = accepted
-                logger.info("[on_user_type] reverted edit into committed text")
-                return
-            current_text = accepted
-
             prev_len = len(state.buffer)
             state.buffer = current_text
             state.last_input_time = time.time()
-            # Space commits the current token: advance committed text to the last space.
+            # Space commits the current token: advance committed text to the last
+            # space. Append-only editing is enforced client-side (a keydown guard
+            # blocks backspace/delete into committed text) so the server never
+            # fights the textarea's value while the user types.
             state.committed_text, _in_progress = committed_prefix(current_text)
 
             if len(current_text) != prev_len:
@@ -283,7 +275,11 @@ def create_app(state: PIIClientState) -> None:
                     state.is_classifying = True
                 _components["status"].update(is_processing=True, is_classifying=True)
 
-                risk_score = await run.io_bound(state.stage1.classify, conv_snapshot, original_text)
+                # MLX must run on the main thread — the Metal backend crashes when
+                # called from run.io_bound's worker pool (same reason the timer
+                # runs Stage 1 synchronously). The is_processing flag pauses the
+                # timer, so there is no concurrent MLX access here.
+                risk_score = state.stage1.classify(conv_snapshot, original_text)
 
                 with state.lock:
                     state.is_classifying = False
@@ -305,33 +301,27 @@ def create_app(state: PIIClientState) -> None:
                     state.risk_history.append(risk_entry)
                     state.last_classified_len = len(original_text)
 
-            # Masking decision
+            # Masking decision — delegated to the guard so its hold-back buffer,
+            # overlap tail, and evaluate/flush path are the real engine. The
+            # per-token timer already updated risk_state / any_risk_in_buffer;
+            # here we populate the buffer and let evaluate_buffer run Stage 2 on
+            # the window (which includes the overlap tail from the prior utterance).
             with state.lock:
-                should_mask = False
                 ema_risk = state.guard.risk_state.ema_risk
                 any_risk_flag = state.guard.any_risk_in_buffer
+                state.guard.messages = conv_snapshot
+                state.guard.buffer.raw_text = original_text
 
-                if any_risk_flag or ema_risk >= state.t_high:
-                    should_mask = True
+            # Run Stage 2 on the main thread too (Metal crashes from the pool).
+            decision = state.guard.evaluate_buffer()
 
-                heuristic_matches = state.heuristics.detect(original_text)
-                strong_heuristic = state.heuristics.has_strong_match(heuristic_matches)
-                if strong_heuristic:
-                    should_mask = True
-
+            should_mask = decision.should_mask
+            strong_heuristic = decision.strong_heuristic
+            stage2_result = decision.redactor_output
             masked_text = original_text
-            stage2_result = None
 
-            if should_mask:
-                stage2_result = await run.io_bound(
-                    state.stage2.redact,
-                    messages=conv_snapshot,
-                    window_text=original_text,
-                )
-
-                if stage2_result.spans:
-                    masked_text = state.masking.apply(original_text, stage2_result.spans)
-
+            if stage2_result and stage2_result.spans:
+                masked_text = state.masking.apply(original_text, stage2_result.spans)
                 logger.info(f"[STAGE2] entities={len(stage2_result.spans)} result={stage2_result}")
 
             was_masked = original_text != masked_text
@@ -410,7 +400,10 @@ def create_app(state: PIIClientState) -> None:
             state.risk_history = []
             state.current_char_data = []
             state.last_classified_len = 0
-            state.guard.any_risk_in_buffer = False
+            state.committed_text = ""
+            # Flush the guard: clears the buffer and risk state, retaining the
+            # overlap tail so PII split across utterances is caught next time.
+            state.guard.flush_emitted()
 
         # Advance word offset for next utterance
         word_count = len(original_text.split())
@@ -569,13 +562,23 @@ def create_app(state: PIIClientState) -> None:
     @ui.page("/")
     def main_page():
         ui.add_head_html(f"<style>{GLOBAL_CSS}</style>")
-        # Prevent bare Enter from inserting a newline in textareas;
-        # Shift+Enter still inserts a newline normally.
+        # Textarea keydown guard (client-side, so the server never fights the
+        # value): bare Enter submits (no newline); and the append-only input
+        # model — only the token after the last space is editable, so backspace/
+        # delete cannot reach into already-committed text.
         ui.add_head_html("""<script>
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey &&
-                e.target && e.target.tagName === 'TEXTAREA') {
-                e.preventDefault();
+            if (!(e.target && e.target.tagName === 'TEXTAREA')) return;
+            // Enter submits; Shift+Enter inserts a newline.
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); return; }
+            // Append-only: everything through the last space is committed/locked.
+            const el = e.target;
+            const committedEnd = el.value.lastIndexOf(' ') + 1;
+            const s = el.selectionStart, en = el.selectionEnd;
+            if (e.key === 'Backspace') {
+                if (s === en ? s <= committedEnd : s < committedEnd) e.preventDefault();
+            } else if (e.key === 'Delete') {
+                if (s < committedEnd) e.preventDefault();
             }
         });
         </script>""")
