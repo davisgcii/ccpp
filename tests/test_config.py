@@ -10,11 +10,12 @@ from ccpp.config import (
     load_config,
     get_stage1_config,
     get_stage2_config,
+    get_masking_config,
     load_default_config,
     _deep_merge,
     _apply_env_overrides,
 )
-from ccpp.types import ApprovedModel
+from ccpp.types import ApprovedModel, MaskingConfig, PIICategory, MaskSpan
 
 
 class TestConfig:
@@ -183,6 +184,25 @@ class TestConfigExtractors:
         # Should be plain dicts suitable for create_backend_from_config
         assert isinstance(stage1, dict)
         assert isinstance(stage2, dict)
+
+    def test_get_masking_config_from_default(self):
+        """Default config maps to a usable MaskingConfig."""
+        config = load_config()
+        masking = get_masking_config(config)
+        assert isinstance(masking, MaskingConfig)
+        assert masking.case_sensitive is True
+        assert masking.category_formats.get("person") == "[PERSON]"
+
+    def test_masking_config_honors_overrides(self):
+        """Config overrides flow into masking behavior."""
+        config = load_config(
+            overrides={"masking": {"case_sensitive": False}}
+        )
+        masking = get_masking_config(config)
+        assert masking.case_sensitive is False
+        # Case-insensitive masking now catches a case-mismatched name.
+        spans = [MaskSpan(entity_text="john", category=PIICategory.PERSON)]
+        assert masking.apply("John here", spans) == "[PERSON] here"
 
 
 class TestStreamingConfigWiring:

@@ -11,7 +11,7 @@ from ccpp.infer.guard import ExchangePIIGuard
 from ccpp.infer.stage1_router import Stage1Router
 from ccpp.infer.stage2_redactor import Stage2Redactor
 from ccpp.infer.heuristics import FastHeuristics
-from ccpp.config import load_config, get_stage1_config, get_stage2_config
+from ccpp.config import load_config, get_stage1_config, get_stage2_config, get_masking_config
 from ccpp.types import CharClassification, BufferMetadata
 from ccpp.gui.instrumented_lock import InstrumentedRLock
 
@@ -75,6 +75,9 @@ class PIIClientState:
         # Store thresholds for easy access
         self.t_high = config.streaming.t_high
         self.t_low = config.streaming.t_low
+
+        # Masking-output settings (single source shared by all masking call sites)
+        self.masking = get_masking_config(config)
 
         # Initialize Anthropic client
         api_key = os.getenv("ANTHROPIC_API_KEY")

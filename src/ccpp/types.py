@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -226,42 +227,168 @@ class RedactorOutput:
         spans = [MaskSpan.from_string(span_str) for span_str in span_strs if span_str]
         return cls(spans=spans)
 
-    def apply_masks(self, text: str, mask_format: str = "[{type}]") -> str:
-        """Apply mask spans to text, replacing sensitive content.
+    def apply_masks(
+        self,
+        text: str,
+        mask_format: str = "[{type}]",
+        *,
+        category_formats: Optional[dict] = None,
+        case_sensitive: bool = True,
+    ) -> str:
+        """Apply this output's mask spans to text.
 
-        Uses exact string matching to find and replace all occurrences of each
-        entity in the text. If an entity is not found, a warning is logged.
+        Thin wrapper over :func:`mask_text`, the single masking implementation
+        shared by every call site. The default ``mask_format`` accepts either
+        ``{type}`` or ``{category}`` as the placeholder.
 
         Args:
             text: The original text (should match window_text used for detection)
-            mask_format: Format string for replacement, e.g. "[{type}]" or "[REDACTED]"
+            mask_format: Replacement template, e.g. "[{category}]" or "[REDACTED]"
+            category_formats: Optional per-category replacement overrides
+            case_sensitive: Match entities case-sensitively (default True)
 
         Returns:
             Text with sensitive entities replaced
         """
-        if not self.spans:
-            return text
+        return mask_text(
+            text,
+            self.spans,
+            mask_format=mask_format,
+            category_formats=category_formats,
+            case_sensitive=case_sensitive,
+        )
 
-        result = text
-        spans = sorted(self.spans, key=lambda s: len(s.entity_text), reverse=True)
-        seen = set()
-        for span in spans:
-            if span.entity_text in seen:
-                continue
-            seen.add(span.entity_text)
-            replacement = mask_format.format(type=span.category.value.upper())
 
-            # Check if entity exists in text
-            if span.entity_text in result:
-                # Replace all occurrences (exact string match)
-                result = result.replace(span.entity_text, replacement)
-            else:
-                logger.warning(
-                    f"Entity not found in text: {span.entity_text!r} "
-                    f"(category: {span.category.value})"
-                )
+# -----------------------------------------------------------------------------
+# Masking (single implementation shared by all call sites)
+# -----------------------------------------------------------------------------
 
-        return result
+# Categories whose entities must match on word boundaries. This prevents masking
+# a short name inside a larger word (e.g. "Priya" inside "Priyanka"). Applied
+# ONLY to word-like PII: entities that contain punctuation or digits (emails,
+# phone numbers, cards, keys, IDs) always use exact substring matching so we
+# never FAIL to mask them — under-masking a redaction target is a data leak.
+WORD_BOUNDARY_CATEGORIES = frozenset({PIICategory.PERSON})
+
+
+def _replace_entity(
+    text: str,
+    entity: str,
+    replacement: str,
+    *,
+    case_sensitive: bool,
+    word_boundary: bool,
+) -> tuple[str, int]:
+    """Replace all occurrences of ``entity`` with ``replacement``.
+
+    Returns ``(new_text, num_replacements)``. A replacement *function* is used
+    so ``replacement`` is treated as a literal string, never a regex template.
+    """
+    if word_boundary:
+        pattern = r"\b" + re.escape(entity) + r"\b"
+        flags = 0 if case_sensitive else re.IGNORECASE
+        return re.subn(pattern, lambda _m: replacement, text, flags=flags)
+    if case_sensitive:
+        return (text.replace(entity, replacement), text.count(entity))
+    return re.subn(re.escape(entity), lambda _m: replacement, text, flags=re.IGNORECASE)
+
+
+def mask_text(
+    text: str,
+    spans: list["MaskSpan"],
+    *,
+    mask_format: str = "[{category}]",
+    category_formats: Optional[dict] = None,
+    case_sensitive: bool = True,
+    word_boundary_categories: frozenset = WORD_BOUNDARY_CATEGORIES,
+) -> str:
+    """Replace PII entities in ``text`` — the single masking implementation.
+
+    Every call site (Stage 2 output, the GUI send path, the review panel and its
+    live preview) routes through this function, so what a user approves in the
+    preview is exactly what gets emitted.
+
+    Matching rules:
+      * Longer entities are masked first, so an entity that is a substring of a
+        longer one cannot partially corrupt it.
+      * Each distinct entity is applied once (deduplicated).
+      * Entities in ``word_boundary_categories`` (names) match only on word
+        boundaries; all others match as exact substrings so punctuation/digit
+        entities (emails, cards, keys) are never missed.
+      * If an entity is not found, a warning is logged — a missed replacement
+        means PII would be emitted unmasked.
+
+    Args:
+        text: Original text to redact.
+        spans: Entities to mask (may be a filtered/approved subset).
+        mask_format: Replacement template; ``{category}`` and ``{type}`` are both
+            accepted (filled with the upper-cased category name).
+        category_formats: Optional per-category replacement overrides keyed by
+            category value (e.g. ``{"person": "[PERSON]"}``); takes precedence
+            over ``mask_format``.
+        case_sensitive: If False, match entities case-insensitively.
+        word_boundary_categories: Categories that require word-boundary matches.
+
+    Returns:
+        Text with sensitive entities replaced.
+    """
+    if not spans:
+        return text
+
+    result = text
+    ordered = sorted(spans, key=lambda s: len(s.entity_text), reverse=True)
+    seen: set[str] = set()
+    for span in ordered:
+        key = span.entity_text if case_sensitive else span.entity_text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if category_formats and span.category.value in category_formats:
+            replacement = category_formats[span.category.value]
+        else:
+            upper = span.category.value.upper()
+            replacement = mask_format.format(type=upper, category=upper)
+
+        result, n = _replace_entity(
+            result,
+            span.entity_text,
+            replacement,
+            case_sensitive=case_sensitive,
+            word_boundary=span.category in word_boundary_categories,
+        )
+        if n == 0:
+            logger.warning(
+                f"Entity not found in text: {span.entity_text!r} "
+                f"(category: {span.category.value})"
+            )
+
+    return result
+
+
+@dataclass(frozen=True)
+class MaskingConfig:
+    """Resolved masking-output settings (from the ``masking`` config section).
+
+    Bundles the parameters for :func:`mask_text` so every call site masks
+    identically. Use :meth:`apply` as the single entry point.
+    """
+
+    mask_format: str = "[{category}]"
+    category_formats: dict = field(default_factory=dict)
+    case_sensitive: bool = True
+    word_boundary_categories: frozenset = WORD_BOUNDARY_CATEGORIES
+
+    def apply(self, text: str, spans: list["MaskSpan"]) -> str:
+        """Mask ``spans`` in ``text`` using these settings."""
+        return mask_text(
+            text,
+            spans,
+            mask_format=self.mask_format,
+            category_formats=dict(self.category_formats),
+            case_sensitive=self.case_sensitive,
+            word_boundary_categories=self.word_boundary_categories,
+        )
 
 
 # -----------------------------------------------------------------------------
