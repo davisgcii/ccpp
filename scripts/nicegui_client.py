@@ -28,21 +28,29 @@ from ccpp.gui.state import PIIClientState
 from ccpp.nicegui.app import create_app
 
 
+# Keep the machine awake for at most this long, so a forgotten idle demo can't
+# hold your Mac awake indefinitely. `-t` caps the assertion even alongside `-w`.
+_CAFFEINATE_TIMEOUT_S = 300  # 5 minutes
+
+
 def prevent_app_nap() -> None:
     """Stop macOS from throttling this background process (App Nap).
 
     A backgrounded server process gets its threads throttled, which makes MLX
-    inference 20-40x slower and degrade over a session. `caffeinate -w <pid>`
-    holds "stay active" assertions until this process exits. No-op off macOS.
+    inference 20-40x slower and degrade over a session. `caffeinate` holds
+    "stay active" assertions; `-w <pid>` releases them when this process exits,
+    and `-t` releases them after a timeout so an idle demo can't keep the Mac
+    awake forever. No-op off macOS.
     """
     if platform.system() != "Darwin":
         return
     try:
         subprocess.Popen(
-            ["caffeinate", "-dimsu", "-w", str(os.getpid())],
+            ["caffeinate", "-dimsu", "-t", str(_CAFFEINATE_TIMEOUT_S),
+             "-w", str(os.getpid())],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        print("  App Nap: disabled (caffeinate)")
+        print(f"  App Nap: disabled for {_CAFFEINATE_TIMEOUT_S // 60} min (caffeinate)")
     except FileNotFoundError:
         print("  App Nap: caffeinate not found — inference may throttle")
 
