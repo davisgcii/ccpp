@@ -15,6 +15,9 @@ Usage:
 """
 
 import argparse
+import os
+import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,6 +26,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ccpp.gui.state import PIIClientState
 from ccpp.nicegui.app import create_app
+
+
+def prevent_app_nap() -> None:
+    """Stop macOS from throttling this background process (App Nap).
+
+    A backgrounded server process gets its threads throttled, which makes MLX
+    inference 20-40x slower and degrade over a session. `caffeinate -w <pid>`
+    holds "stay active" assertions until this process exits. No-op off macOS.
+    """
+    if platform.system() != "Darwin":
+        return
+    try:
+        subprocess.Popen(
+            ["caffeinate", "-dimsu", "-w", str(os.getpid())],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print("  App Nap: disabled (caffeinate)")
+    except FileNotFoundError:
+        print("  App Nap: caffeinate not found — inference may throttle")
 
 
 def main():
@@ -73,6 +95,9 @@ def main():
     print("  View logs: tail -f /tmp/gui_debug.log")
     print()
     print("Initializing components...")
+
+    # Keep macOS from throttling us before we load + warm up the models.
+    prevent_app_nap()
 
     state = PIIClientState(
         stream_break_timeout=args.timeout,

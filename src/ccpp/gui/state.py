@@ -62,6 +62,12 @@ class PIIClientState:
         )
         self.heuristics = FastHeuristics()
 
+        # Warm up both models so the first real request isn't slow. MLX compiles
+        # Metal kernels lazily on first use; Stage 2's generate path is only
+        # exercised on the first send, so without this the first masked message
+        # pays a ~20s compilation cost. Doing it here moves that to startup.
+        self._warmup()
+
         self.guard = ExchangePIIGuard(
             stage1=self.stage1,
             stage2=self.stage2,
@@ -123,6 +129,17 @@ class PIIClientState:
         # Pending classification queue: list of (space_position, text_snapshot, conversation_snapshot)
         # Classifications are queued by on_user_type and processed by timer
         self.pending_classifications: list[tuple[int, str, list]] = []
+
+    def _warmup(self) -> None:
+        """Run one throwaway inference per stage to trigger MLX kernel
+        compilation at startup instead of on the first user request."""
+        try:
+            t = time.time()
+            self.stage1.classify([], "warmup")
+            self.stage2.redact([], "warmup name is Jane Doe")
+            logger.info(f"[warmup] models warmed in {time.time() - t:.1f}s")
+        except Exception as e:
+            logger.warning(f"[warmup] failed (first request may be slow): {e}")
 
     def reset(self):
         """Reset state for new conversation."""
